@@ -7,16 +7,17 @@ import { Diagnostics } from "./Diagnostics";
 import { normalizePath } from "@/lib/route-path";
 import { setGeminiRobotLogger } from "@/lib/gemini-robot";
 
-type HubPath = "/" | "/personality" | "/camera" | "/lights" | "/tasks" | "/activities" | "/apps" | "/settings" | "/diagnostics" | "/firmware" | "/build";
+// Links carry the trailing slash (router trailingSlash: "always"); compare via normalizePath.
+type HubPath = "/" | "/personality/" | "/camera/" | "/lights/" | "/tasks/" | "/activities/" | "/apps/" | "/settings/" | "/diagnostics/" | "/firmware/" | "/build/";
 const groups: { label: string; items: { to: HubPath; label: string; icon: LucideIcon }[] }[] = [
-  { label: "Robot", items: [{ to: "/", label: "Styr roboten", icon: Bot }, { to: "/personality", label: "Personlighet", icon: Smile }, { to: "/camera", label: "Kamera", icon: Camera }] },
-  { label: "Vardag", items: [{ to: "/apps", label: "Appar", icon: Blocks }, { to: "/lights", label: "Lampor & scener", icon: Lightbulb }, { to: "/tasks", label: "Att-göra", icon: ListTodo }, { to: "/activities", label: "Aktiviteter", icon: CheckSquare }] },
-  { label: "System", items: [{ to: "/settings", label: "Inställningar", icon: Settings }, { to: "/diagnostics", label: "Felsökning", icon: Activity }, { to: "/firmware", label: "Uppdatera roboten", icon: Cpu }, { to: "/build", label: "LEGO-bygge", icon: Blocks }] },
+  { label: "Robot", items: [{ to: "/", label: "Styr roboten", icon: Bot }, { to: "/personality/", label: "Personlighet", icon: Smile }, { to: "/camera/", label: "Kamera", icon: Camera }] },
+  { label: "Vardag", items: [{ to: "/apps/", label: "Appar", icon: Blocks }, { to: "/lights/", label: "Lampor & scener", icon: Lightbulb }, { to: "/tasks/", label: "Att-göra", icon: ListTodo }, { to: "/activities/", label: "Aktiviteter", icon: CheckSquare }] },
+  { label: "System", items: [{ to: "/settings/", label: "Inställningar", icon: Settings }, { to: "/diagnostics/", label: "Felsökning", icon: Activity }, { to: "/firmware/", label: "Uppdatera roboten", icon: Cpu }, { to: "/build/", label: "LEGO-bygge", icon: Blocks }] },
 ];
 
 export function HubShell({ children }: { children: ReactNode }) {
   const path = useLocation({ select: (location) => normalizePath(location.pathname) });
-  const active = groups.flatMap((group) => group.items).find((item) => item.to === path);
+  const active = groups.flatMap((group) => group.items).find((item) => normalizePath(item.to) === path);
   const [dark, setDark] = useState(true);
   const [themeLoaded, setThemeLoaded] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -44,8 +45,8 @@ export function HubShell({ children }: { children: ReactNode }) {
         <nav aria-label="Huvudnavigation" className="space-y-6 px-3 py-6 md:sticky md:top-0">
           {groups.map((group) => <div key={group.label}>
             <p className="mb-2 px-3 text-xs font-semibold uppercase text-muted-foreground">{group.label}</p>
-            <div className="space-y-1">{group.items.map(({ to, label, icon: Icon }) => <Button key={to} asChild variant={path === to ? "secondary" : "ghost"} className={`h-10 w-full justify-start gap-3 px-3 ${path === to ? "text-foreground" : "text-muted-foreground"}`}>
-              <Link to={to} aria-current={path === to ? "page" : undefined}><Icon className="size-4 shrink-0" /><span>{label}</span>{path === to && <ChevronRight className="ml-auto size-3.5" />}</Link>
+            <div className="space-y-1">{group.items.map(({ to, label, icon: Icon }) => <Button key={to} asChild variant={path === normalizePath(to) ? "secondary" : "ghost"} className={`h-10 w-full justify-start gap-3 px-3 ${path === normalizePath(to) ? "text-foreground" : "text-muted-foreground"}`}>
+              <Link to={to} aria-current={path === normalizePath(to) ? "page" : undefined}><Icon className="size-4 shrink-0" /><span>{label}</span>{path === normalizePath(to) && <ChevronRight className="ml-auto size-3.5" />}</Link>
             </Button>)}</div>
           </div>)}
         </nav>

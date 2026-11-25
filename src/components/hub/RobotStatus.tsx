@@ -47,7 +47,7 @@ export function RobotStatus() {
           </dl>
         ) : null}
         {s && isWithdrawnVersion(String(s["firmware_version"] ?? "")) && (
-          <Button asChild className="mt-3 w-full"><Link to="/firmware">Återställ till {LATEST.version}</Link></Button>
+          <Button asChild className="mt-3 w-full"><Link to="/firmware/">Återställ till {LATEST.version}</Link></Button>
         )}
         {!s && <p className="text-sm text-muted-foreground">Tryck "Läs status" (via USB eller bryggan).</p>}
       </CardContent>

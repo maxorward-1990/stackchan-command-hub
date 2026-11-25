@@ -1,4 +1,5 @@
 import { parsePerf } from './performance';
+import { summarizeTest, summaryText, type TestSummary } from './test-summary';
 
 export const TEST_MAX_BYTES = 4 * 1024 * 1024;
 export const TEST_MAX_EVENTS = 20000;
@@ -6,7 +7,10 @@ export const TEST_MAX_MS = 30 * 60 * 1000;
 export interface TestEvent { receivedAt: string; elapsedMs: number; kind: 'serial' | 'command' | 'marker'; text: string }
 export interface TestReport {
   schema: 'stackchan-test-v1'; startedAt: string; stoppedAt: string; reason: string;
-  transport: 'usb'; events: TestEvent[]; dropped: number;
+  transport: 'usb';
+  /** Short human/Claude-readable overview; read this first. */
+  summaryText: string; summary: TestSummary;
+  events: TestEvent[]; dropped: number;
   snapshots: { phase: string; receivedAt: string; status: unknown; runtime: unknown }[];
   performance: { receivedAt: string; elapsedMs: number; sample: NonNullable<ReturnType<typeof parsePerf>> }[];
   limitations: string[];
@@ -87,7 +91,9 @@ export class TestRecording {
       this.marker(`Test stopped: ${reason}`);
       this.active = false; this.cleanup();
       const performance = this.events.flatMap(event => { const sample = parsePerf(event.text); return sample ? [{ receivedAt: event.receivedAt, elapsedMs: event.elapsedMs, sample }] : []; });
-      this.report = { schema: 'stackchan-test-v1', startedAt: new Date(this.started).toISOString(), stoppedAt: new Date(this.deps.now()).toISOString(), reason, transport: 'usb', events: [...this.events], dropped: this.dropped, snapshots: this.snapshots, performance,
+      const snapshotFw = this.snapshots.flatMap(x => { const st = x.status as Record<string, unknown>; return ['fw', 'firmware', 'firmware_version', 'version'].map(k => st?.[k]).filter((v): v is string => typeof v === 'string'); });
+      const summary = summarizeTest(this.events, performance.map(p => p.sample), this.deps.now() - this.started, this.dropped, snapshotFw);
+      this.report = { schema: 'stackchan-test-v1', startedAt: new Date(this.started).toISOString(), stoppedAt: new Date(this.deps.now()).toISOString(), reason, transport: 'usb', summaryText: summaryText(summary), summary, events: [...this.events], dropped: this.dropped, snapshots: this.snapshots, performance,
         limitations: ['Local text logs only; no PCM, camera capture or automatic upload.', 'Conversation text may contain personal information: review before sharing.', 'receivedAt is browser UTC reception time; device ms is uptime, not UTC. Network/buffering delay remains unknown.', 'CPU is a tick-sampling estimate; nested stage maxima overlap.', 'Raw API responses and sensitive tool lines are excluded; snapshots use an allowlist.', 'Only events received during this test are included. No historical conversations fetched.', 'Capture limited to 30 minutes, 20000 events and 4 MiB event budget; omitted events counted.'] };
       this.busy = false;
       return this.report;
