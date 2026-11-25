@@ -1,3 +1,6 @@
+## Working with the owner
+- Ask the owner for a quick manual step (attach a test package or log file, copy the Chrome console, screenshot a dialog, pick the USB port, sign in, approve a GitHub setting, report what the robot did) whenever it is faster or cheaper than doing it through tools; say briefly what it saves. Automate instead when the step would recur every time or is error-prone. Prefer text logs over screenshots when driving a browser. Why: the owner wants usage spent where it matters, and only the owner can hear, see and physically test the robot.
+
 ## Project rules
 - The project is no longer developed in Lovable; git in this folder is the only source of truth. Keep `@lovable.dev/vite-tanstack-config` as a normal build dependency. Why: two editing places diverged and the history was lost once.
 - Keep the custom Gemini firmware source and regression tests in `firmware/`, with builds in `/tmp`; keep the LittleFS partition at 0xC90000/3456KiB (from v50 `partitions_wake16MB.csv` only carves a 512KiB `model` partition from app1's unused end) and the LittleFS fallback so updates retain settings; firmware builds on pioarduino Arduino 3 (`platformio.v49-backup.ini` is the Arduino 2 rollback). Why: the robot must run without an SD card and changes must remain reproducible.
