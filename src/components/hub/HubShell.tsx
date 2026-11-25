@@ -4,6 +4,7 @@ import { Activity, Blocks, Bot, Camera, CheckSquare, ChevronRight, Cpu, Lightbul
 import { Button } from "@/components/ui/button";
 import { RobotConnection } from "./RobotConnection";
 import { Diagnostics } from "./Diagnostics";
+import { normalizePath } from "@/lib/route-path";
 import { setGeminiRobotLogger } from "@/lib/gemini-robot";
 
 type HubPath = "/" | "/personality" | "/camera" | "/lights" | "/tasks" | "/activities" | "/apps" | "/settings" | "/diagnostics" | "/firmware" | "/build";
@@ -14,7 +15,7 @@ const groups: { label: string; items: { to: HubPath; label: string; icon: Lucide
 ];
 
 export function HubShell({ children }: { children: ReactNode }) {
-  const path = useLocation({ select: (location) => location.pathname });
+  const path = useLocation({ select: (location) => normalizePath(location.pathname) });
   const active = groups.flatMap((group) => group.items).find((item) => item.to === path);
   const [dark, setDark] = useState(true);
   const [themeLoaded, setThemeLoaded] = useState(false);
