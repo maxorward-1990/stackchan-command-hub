@@ -1,8 +1,8 @@
 # Testa och publicera Command Hub på GitHub Pages.
 # - Push till main   -> vanliga versionen:  https://maxorward-1990.github.io/stackchan-command-hub/
 # - Push till preview -> testversionen:     https://maxorward-1990.github.io/stackchan-command-hub/preview/
-# Varje publicering bygger båda (Pages har bara en sida), men testar bara det som ändrats:
-# firmwaretesterna körs endast när firmware/, v61/ eller workflows ändrats.
+# Den här workflowen testar (firmwaretesterna bara när firmware/, v61/ eller workflows ändrats).
+# När testerna går igenom på main eller preview publicerar publish.yml båda versionerna.
 name: Testa och publicera
 
 on:
@@ -13,12 +13,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   test:
@@ -51,47 +45,3 @@ jobs:
       - name: Firmwaretester
         if: steps.changes.outputs.firmware == 'true'
         run: bash firmware/run_tests.sh
-
-  publish:
-    if: github.event_name != 'pull_request'
-    needs: test
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Hämta main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          path: main
-      - name: Finns preview-branchen?
-        id: preview
-        run: |
-          if git ls-remote --exit-code --heads "https://github.com/${{ github.repository }}" preview >/dev/null; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
-      - name: Hämta preview
-        if: steps.preview.outputs.exists == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: preview
-          path: preview
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: main/package-lock.json
-      - name: Bygg vanliga versionen
-        working-directory: main
-        run: npx -y npm@11 ci --no-audit --no-fund && npm run build:pages
-      - name: Bygg preview
-        if: steps.preview.outputs.exists == 'true'
-        working-directory: preview
-        run: npx -y npm@11 ci --no-audit --no-fund && npm run build:preview
-      - name: Sätt ihop sidan
-        if: steps.preview.outputs.exists == 'true'
-        run: node main/tools/assemble-pages.mjs main/dist/client preview/dist/client
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: main/dist/client
-      - id: deployment
-        uses: actions/deploy-pages@v4

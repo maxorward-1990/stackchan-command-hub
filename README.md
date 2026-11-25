@@ -7,7 +7,7 @@ Projektet utvecklas med git på GitHub; Lovable används inte längre.
 USB och Bluetooth fungerar därifrån, Wi-Fi-styrning kräver bryggan nedan på en dator).
 **Testversion (preview):** https://maxorward-1990.github.io/stackchan-command-hub/preview/ – byggs från
 branchen `preview`, har en gul banner och egen lagring (rör inte anteckningar/inställningar i den vanliga).
-Push till `main` eller `preview` kör testerna och publicerar båda (`.github/workflows/pages.yml`).
+Push till `main` eller `preview` kör testerna (`pages.yml`); när de går igenom publicerar `publish.yml` båda.
 Firmware byggs av `.github/workflows/firmware.yml` till branchen `firmware-builds` (inget flashas automatiskt).
 
 ## Starta appen (Windows)

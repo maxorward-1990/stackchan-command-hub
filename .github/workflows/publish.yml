@@ -1,0 +1,74 @@
+# Publicera Command Hub på GitHub Pages när "Testa och publicera" lyckats på main eller preview.
+# workflow_run körs alltid från main, så Pages miljöskydd (bara main får publicera) uppfylls
+# även för preview. Varje publicering bygger båda versionerna, eftersom Pages bara har en sida:
+#   main    -> /stackchan-command-hub/
+#   preview -> /stackchan-command-hub/preview/
+name: Publicera
+
+on:
+  workflow_run:
+    workflows: ["Testa och publicera"]
+    types: [completed]
+    branches: [main, preview]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url || steps.retry.outputs.page_url }}
+    steps:
+      - name: Hämta main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+      - name: Finns preview-branchen?
+        id: preview
+        run: |
+          if git ls-remote --exit-code --heads "https://github.com/${{ github.repository }}" preview >/dev/null; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Hämta preview
+        if: steps.preview.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: preview
+          path: preview
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: main/package-lock.json
+      - name: Bygg vanliga versionen
+        working-directory: main
+        run: npx -y npm@11 ci --no-audit --no-fund && npm run build:pages
+      - name: Bygg preview
+        if: steps.preview.outputs.exists == 'true'
+        working-directory: preview
+        run: npx -y npm@11 ci --no-audit --no-fund && npm run build:preview
+      - name: Sätt ihop sidan
+        if: steps.preview.outputs.exists == 'true'
+        run: node main/tools/assemble-pages.mjs main/dist/client preview/dist/client
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: main/dist/client
+      - id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      # GitHub svarar ibland 500 vid publicering; ett nytt försök brukar gå igenom.
+      - name: Vänta före nytt försök
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 45
+      - id: retry
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v4
