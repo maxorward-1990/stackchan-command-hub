@@ -1,6 +1,6 @@
-"""Reproducible v61 + apps overlay (v76: DMA guard only before wake listening starts; v75: lamp worker cannot starve the wake microphone; v74: unlocked end-of-speech sensitivity; v73: quantized wake threshold; v72: adjustable threshold; v71: widget stop, sub-minute timers, swipe close). No withdrawn voice changes enter the build.
-Run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-v76
-Then: PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core python3 -m platformio run -d /tmp/stackchan-v76
+"""Reproducible v61 + apps overlay (v77: bounded diagnostic mode keeps standard-diagnosis turns out of dialogue memory, real wake-word status; v76: DMA guard only before wake listening starts; v75: lamp worker cannot starve the wake microphone; v74: unlocked end-of-speech sensitivity; v73: quantized wake threshold; v72: adjustable threshold; v71: widget stop, sub-minute timers, swipe close). No withdrawn voice changes enter the build.
+Run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-v77
+Then: PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core python3 -m platformio run -d /tmp/stackchan-v77
 """
 from pathlib import Path
 import shutil
@@ -41,7 +41,7 @@ def edit(name, replacements):
         text = text.replace(old, new)
     path.write_text(text)
 
-edit("FirmwareVersion.h", [('"custom-v61"', '"custom-v76"')])
+edit("FirmwareVersion.h", [('"custom-v61"', '"custom-v77"')])
 apply_wake_threshold(edit)
 # v74: honour the saved end-of-speech setting instead of always END_SENSITIVITY_LOW.
 VAD_END = [('"END_SENSITIVITY_LOW"; // v18: HIGH cut Swedish speech at micro-pauses',
@@ -296,6 +296,46 @@ edit("SmartHome.cpp", [
 edit("main.cpp", [("    w.search = WebResearch::busy();\n",
     "    w.search = WebResearch::busy() || SmartHome::busy() || InternetVisual::busy();\n"
     "    if (!WakeWord::listening() && heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) < 8192) w.search = true;  // Start-only I2S DMA guard\n")])
+# v77: Command Hub's standard diagnosis switches on a bounded diagnostic mode (/api/diagnostic, max 15 min,
+# expires by itself). While active, transcripts are not appended to dialogue memory, so test text turns and
+# simulated voice never pollute the owner's history. /api/status reports the real wake-word state instead of
+# the stale hardcoded "unavailable".
+for name in ("DiagnosticModePolicy.h", "DiagnosticMode.h"):
+    shutil.copyfile(ROOT / "firmware/apps" / name, target / "src" / name)
+edit("GeminiLiveProbe.cpp", [
+    ('#include "GeminiLiveProbe.h"', '#include "GeminiLiveProbe.h"\n#include "DiagnosticMode.h"'),
+    ('    memory_->appendDialogue("user", String(inputText), "live_input_transcription");',
+     '    if (!DiagnosticMode::active()) memory_->appendDialogue("user", String(inputText), "live_input_transcription");'),
+    ('  memory_->appendDialogue("assistant", transcript_output_buffer_, "live_output_transcription");',
+     '  if (!DiagnosticMode::active()) memory_->appendDialogue("assistant", transcript_output_buffer_, "live_output_transcription");'),
+])
+edit("WebConfigServer.cpp", [
+    ('#include "Personality.h"\n', '#include "Personality.h"\n#include "DiagnosticMode.h"\n'),
+    ('  doc["wake_word_available"] = false;\n  doc["wake_method"] = "touch_or_web_button";\n',
+     '  doc["wake_word_available"] = WakeWord::available();\n  doc["wake_word_listening"] = WakeWord::listening();\n'
+     '  doc["wake_method"] = WakeWord::available() ? "wake_word_touch_or_web" : "touch_or_web_button";\n'
+     '  doc["diagnostic_mode_ms"] = DiagnosticMode::remainingMs();\n'),
+    ('  on("/api/voice/toggle", HTTP_POST, [this]() { if (requireAuth()) handleVoiceToggle(); });\n',
+     '  on("/api/voice/toggle", HTTP_POST, [this]() { if (requireAuth()) handleVoiceToggle(); });\n'
+     '  on("/api/diagnostic", HTTP_GET, [this]() {\n'
+     '    if (!requireAuth()) return;\n'
+     '    JsonDocument d; d["ok"] = true; d["active"] = DiagnosticMode::active(); d["remaining_ms"] = DiagnosticMode::remainingMs();\n'
+     '    sendJson(200, d);\n'
+     '  });\n'
+     '  on("/api/diagnostic", HTTP_POST, [this]() {\n'
+     '    if (!requireAuth()) return;\n'
+     '    JsonDocument in, d;\n'
+     '    String body = readBody();\n'
+     '    if (body.length() > 128 || deserializeJson(in, body) || !in["active"].is<bool>()) {\n'
+     '      d["ok"] = false; d["error"] = "invalid_diagnostic_request"; sendJson(400, d); return;\n'
+     '    }\n'
+     '    DiagnosticMode::set(in["active"].as<bool>(), in["seconds"] | 600L);\n'
+     '    d["ok"] = true; d["active"] = DiagnosticMode::active(); d["remaining_ms"] = DiagnosticMode::remainingMs();\n'
+     '    sendJson(200, d);\n'
+     '  });\n'),
+])
+_glp = (target / "src/GeminiLiveProbe.cpp").read_text()
+assert _glp.count("if (!DiagnosticMode::active()) memory_->appendDialogue(") == 2 and _glp.count("memory_->appendDialogue(") == 2
 _sh = (target / "src/SmartHome.cpp").read_text()
 assert _sh.count("cancelRequested) { err") == 2 and "state.busy() || workerAlive" in _sh and _sh.count("workerAlive = false;") == 2
 # Verify protected baseline modules byte-for-byte, not merely by a version label.
@@ -314,4 +354,4 @@ apply_wake_threshold(expected_edit)
 for name in PATCHED_MODULES:
     assert (target / "src" / name).read_text() == expected[name], name
 assert (target / "partitions_wake16MB.csv").read_bytes() == (ROOT / "firmware/partitions_wake16MB.csv").read_bytes()
-print(f"Prepared {target}: v61 voice/memory + v71 apps + threshold-only wake tuning (no peak gate/proximity/reset)")
+print(f"Prepared {target}: v61 voice/memory + v71 apps + threshold-only wake tuning (no peak gate/proximity/reset) + v77 diagnostic mode")

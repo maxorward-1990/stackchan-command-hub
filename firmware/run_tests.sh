@@ -40,12 +40,12 @@ echo "== 1. Repots firmware/ (kopia i $WORK/repo)"
 cp -r "$ROOT/firmware" $WORK/repo; rm -rf $WORK/repo/.pio; link_json $WORK/repo
 cpp_tests $WORK/repo repo
 
-echo "== 2. v76 förberedd från v61 med prepare_apps.py"
-STAGED=$WORK/v76
+echo "== 2. Aktuell firmware förberedd från v61 med prepare_apps.py"
+STAGED=$WORK/staged
 if python3 "$ROOT/firmware/apps/prepare_apps.py" $STAGED > $WORK/prepare.log 2>&1; then ok "prepare_apps.py"; else bad "prepare_apps.py" $WORK/prepare.log; fi
 if [ -d $STAGED/src ]; then
   link_json $STAGED
-  cpp_tests $STAGED v76
+  cpp_tests $STAGED staged
   R=$WORK/repo
   py_test repo $R tests/desk_app_runtime.py "$AJ"
   py_test repo $R tests/focus_app_runtime.py "$AJ"
@@ -57,14 +57,14 @@ if [ -d $STAGED/src ]; then
   py_test repo $R tests/search_handoff_wiring.py
   py_test repo $R tests/live_setup_memory.py
   py_test repo $R tests/web_research_memory.py
-  py_test v76  $STAGED tests/live_setup_memory.py
-  py_test v76  $STAGED tests/web_research_memory.py
+  py_test staged $STAGED tests/live_setup_memory.py
+  py_test staged $STAGED tests/web_research_memory.py
 fi
 
 echo "== 3. v61-baslinjen (kopia)"
 cp -r "$ROOT/v61/firmware" $WORK/v61; link_json $WORK/v61
 for s in wake_word_lifecycle search_handoff_wiring live_setup_memory web_research_memory; do py_test v61 $WORK/v61 tests/$s.py; done
-# v61:s wake_word_lifecycle/search_handoff_wiring körs inte mot v76: v76 ändrar avsiktligt
+# v61:s wake_word_lifecycle/search_handoff_wiring körs inte mot den förberedda källan: v76+ ändrar avsiktligt
 # WakeWord.cpp och raden w.search; de ersätts av wake_threshold_v72/wake_dma_v76 ovan.
 # robot_v8_smoke.py kräver en fysisk robot och körs inte här.
 
