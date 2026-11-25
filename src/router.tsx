@@ -10,6 +10,9 @@ export const getRouter = () => {
     routeTree,
     context: { queryClient },
     scrollRestoration: true,
+    // GitHub Pages serves each prerendered route as <route>/index.html and always redirects
+    // to the trailing-slash URL; matching it keeps hydration identical (no React #418).
+    trailingSlash: "always",
     // Lets Query own freshness; set caching defaults on the QueryClient, not the router.
     defaultPreloadStaleTime: 0,
   });
