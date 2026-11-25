@@ -1,0 +1,64 @@
+<!-- LOVABLE:BEGIN -->
+> [!IMPORTANT]
+> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
+> published git history — force pushing, or rebasing/amending/squashing commits
+> that are already pushed — as it rewrites history on Lovable's side and the
+> user will likely lose their project history.
+>
+> Commits you push to the connected branch sync back to Lovable and show up in
+> the editor, so keep the branch in a working state.
+
+## What Lovable manages
+
+Rules outside this block are the project's own. Change the pieces below in
+Lovable, not by hand. With the [Lovable MCP](https://mcp.lovable.dev)
+connected, `send_message` asks Lovable to do it; otherwise ask the user to
+use the editor.
+
+- **Database.** Do not add or edit `supabase/migrations/` or `drizzle/`.
+  Ask Lovable to change the schema.
+- **Generated files.** Do not edit a file whose header says it is automatically
+  generated.
+- **AI gateway.** Keep model calls on Lovable's gateway, and keep
+  `LOVABLE_API_KEY` out of browser code.
+- **Connectors.** Lovable provides native connectors. `list_connectors` shows
+  which are enabled; `add_connector` only returns the dashboard link. When a
+  connector is enabled, calls go through the connector gateway and need
+  `LOVABLE_API_KEY`. When Lovable does not provide one, users can bring their
+  own key and store it in Secrets.
+- **Secrets.** Lovable manages them. Do not put secret values in the repo.
+<!-- LOVABLE:END -->
+
+## Project rules
+- Keep the custom Gemini firmware source and regression tests in `firmware/`, with builds in `/tmp`; keep the LittleFS partition at 0xC90000/3456KiB (from v50 `partitions_wake16MB.csv` only carves a 512KiB `model` partition from app1's unused end) and the LittleFS fallback so updates retain settings; firmware builds on pioarduino Arduino 3 (`platformio.v49-backup.ini` is the Arduino 2 rollback). Why: the robot must run without an SD card and changes must remain reproducible.
+- Advertise only configured external firmware tools; stop queued audio before reconnecting on touch interruption, and keep image display local with explicit bounded JPEG input. Why: unavailable services must not masquerade as capabilities and CoreS3 microphone/speaker operation is currently half-duplex.
+- Render request-specific screen information through the shared ScreenImage module for Gemini and HTTP, rejecting overflow and invalid chart data. Why: a small LCD must not silently hide content or report a partial display as successful.
+- Direct internet visual tools use Wikipedia/Commons via certificate-verified HTTPS, bounded bodies and cached candidate IDs, never model-supplied arbitrary URLs; fetched text is untrusted data. Why: public information/photos must work without a home gateway while limiting memory, network access and prompt injection.
+- Run Wikipedia/Commons HTTPS in a single cancellable 24KiB-stack worker, dispatch Live results and render downloaded JPEGs only on the main task. Why: nested TLS exhausted loopTask's stack; background fetching must not block touch/WebSocket service or race LCD access.
+- `search_web` uses Tavily with the owner's free key kept only on the robot, via pure tested `WebResearchPolicy.h`, outside the Live loop. Why: free accounts; DuckDuckGo was CAPTCHA-blocked.
+- Complete microphone captures before encoding, process every PCM part and fragmented Live message, and resume listening only after true turnComplete and speaker drain in the main loop; bound pending tools/replies and expose redacted diagnostics. Why: asynchronous audio and generationComplete are not completed captures or finished playback and must not cause silent turns.
+- All robot control (status, head, face, LEDs, speech, settings, skills) goes through the single `src/lib/gemini-robot.ts` client, which picks USB WebSerial, then Web Bluetooth (`src/lib/web-bluetooth.ts`, firmware `BleBridge`, same `api #id` lines), then the CORS bridge `tools/robot-proxy.mjs`; never add a second control path. Why: features must work the same however the robot is connected.
+- User data (notes, skills, chat, settings) lives in localStorage via `useLocal`. Why: app must run standalone on any host.
+- USB serial console commands are parsed by the pure `firmware/src/SerialCommandPolicy.h` (bounded lines, tested) and dispatched in main.cpp; it never prints keys. Why: debugging without mic/Wi-Fi and a future Command Hub WebSerial channel.
+- Command Hub talks to our Gemini firmware via `src/lib/gemini-robot.ts`: over USB (`src/lib/web-serial.ts` singleton, `api #id METHOD /api/... json` → `API #id <status> <json>`, dispatched by WebConfigServer::serialApi through the same route table as HTTP) when connected, else JSON through the CORS bridge. Why: settings, prompts and control must work without reflashing or a bridge.
+
+- On-device menu logic (press classification, grid/keyboard hit-testing) lives in pure tested `firmware/src/TouchMenuPolicy.h`; `TouchMenu.cpp` only draws and saves through the shared route table; BLE is off by default and requires PIN pairing shown on the LCD. Why: the robot must be reconfigurable without phone/computer, and a radio that can set Wi-Fi secrets must need physical presence.
+
+- Firmware is flashed from Command Hub (Firmware tab, esptool-js via `src/lib/flasher.ts`); bundled images and address/erase rules live in tested `src/lib/firmware-releases.ts` — app images only at 0x10000, recovery only at 0x0, never erase. Why: wrong-address flashing once bricked the boot, and history must be visible.
+
+- Gemini tool groups (Wikipedia, images, gestures, camera, memory, screen, emotions) are toggled at runtime via `tool_*` flags in runtime.json, mapped by the pure tested `firmware/src/ToolTogglePolicy.h`; disabled tools are never declared to Gemini. Why: behaviour must be adjustable from Command Hub without reflashing, and a declared tool attracts the model even when prompts discourage it.
+- Speech-language selection lives in runtime.json and is applied last in Live setup, above profile/history language instructions; native Live language instructions are not a guaranteed transcription whitelist. Why: behaviour stays adjustable without reflashing or overstating model control.
+- AudioDiagnostics explicitly captures bounded processed PCM locally, using the main loop, generation-tagged chunks and timed RAM expiry through the shared robot API; never capture or upload diagnostic audio automatically. Why: reproducible microphone tests must not disrupt Live audio or expose conversations.
+- Text/list displays use validated, paged bottom panels composed into the face canvas and cleared on new speech/session end; keep charts/photos fullscreen. Why: all accepted content remains visible without hiding the robot's listening state.
+- FirmwareVersion.h is the single source for boot, status and touchscreen firmware labels. Why: hardcoded older labels previously misreported running firmware.
+- Live motion tools run sequentially in the main loop with bounded queues, a settled-motor completion response and mic gating; playback uses PlaybackMotionPolicy prefill and progress-based drain deadlines. Why: motor noise must not interrupt listening and queued speech is not a speaker stall.
+- Live camera: MJPEG on separate port-81 server (`CameraStream`, pure tested `CameraStreamPolicy.h`), bridged at `/stream`, one viewer, voice paused, tap stops, bounded session; USB/BLE poll `/api/camera/frame`. Why: no blocking of web/touch loop; CoreS3 can't run video and Live together.
+- Tap/hold voice control: pure tested `TalkTouchPolicy.h`; `[TID]` timing lines parsed by tested `src/lib/speech-timing.ts`; to-dos: pure tested `TodoPolicy.h` via `TodoStore` (/todos.json), shared by `manage_todos` and `/api/todos`. Why: manual turn end in noise; one offline list.
+
+- Keep shared navigation and robot connection in HubShell/RobotConnection; feature pages have distinct routes, and Diagnostics remains mounted across navigation. Why: connecting must never require a detour and active measurements must survive page changes.
+- Cold voice starts capture into a bounded main-loop PCM queue while the network task connects; drain in order without overwriting and clear on every stop/error. Only automatic idle keeps a microphone-off warm session for a bounded period; explicit stop always closes it. Why: early speech must not be lost and stop must protect privacy.
+- Local wake word: Espressif WakeNet `wn9_histackchan_tts3` in the `model` partition, run by `WakeWord` on the main loop only when pure tested `WakeWordPolicy.h` allows (enabled, idle, silent, no camera/menu/diagnostics); detection releases the mic and takes the display-tap start path; every other mic user calls `WakeWord::stop()` first. Why: CoreS3 mic/speaker are half-duplex and shared, and voice start must behave identically to touch.
+- Never call WakeNet `clean()` for histackchan; create only for idle listening, destroy after mic drain on stop/detection, test allocation/lifecycle failures with host fakes. Use `qio_qspi` for this StackChan; block model discovery/create when PSRAM is absent and log heap/PSRAM at transitions. Why: v50 reset crashed, v51 TLS failed with resident model, v52 OPI disabled actual PSRAM and caused a boot loop.
+- Live setup uses tested LiveSetupPolicy bounds and PSRAM-only JSON/text buffers; log sizes/heap, never content, and fail closed on overflow/allocation failure. Why: internal RAM must remain available for TLS/AES; limiting sent history must not delete stored dialogues.
+- Tavily stacks/JSON use PSRAM; never write flash in its worker. Why: reserve internal RAM for Live TLS.
+- `v61/firmware/` is the read-only exported v61 source (commit 80a1c00) that `firmware/apps/prepare_apps.py` builds v66+ from; never edit it, and add changes as overlays in `firmware/apps/`. Why: the project left Lovable without git history and recommended firmware must stay reproducible.

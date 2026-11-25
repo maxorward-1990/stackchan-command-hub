@@ -1,0 +1,277 @@
+#include "TouchMenu.h"
+#include <M5Unified.h>
+#include <M5StackChan.h>
+#include <WiFi.h>
+#include "BleBridge.h"
+#include "ScreenImage.h"
+#include "TouchMenuPolicy.h"
+
+using namespace TouchMenuPolicy;
+
+namespace {
+enum class Screen { Main, Wifi, Keyboard, Bluetooth, Volume, Info, Message };
+TouchMenu::Hooks H;
+bool g_active = false;
+Screen g_screen = Screen::Main;
+uint32_t g_lastTouch = 0;
+bool g_wasPressed = false;
+// Wi-Fi list
+constexpr int kMaxNets = 20, kPerPage = 4;
+String g_ssid[kMaxNets]; int g_rssi[kMaxNets]; bool g_open[kMaxNets]; int g_netCount = 0, g_page = 0;
+String g_chosen; std::string g_pass; Layer g_layer = Layer::Lower; bool g_showPass = true;
+String g_msg;
+
+lgfx::LGFXBase& D() { return M5StackChan.Display(); }
+const uint16_t BG = TFT_BLACK, FG = TFT_WHITE, ACC = 0x05FF, BTN = 0x2124, WARN = 0xFB20;
+
+void title(const char* t, bool back = true) {
+  auto& d = D();
+  d.fillScreen(BG);
+  d.setFont(&fonts::efontJA_16); d.setTextSize(1);
+  d.fillRect(0, 0, kW, 32, ACC);
+  d.setTextColor(BG, ACC); d.setTextDatum(middle_left);
+  d.drawString(t, back ? 44 : 8, 16);
+  if (back) { d.setTextDatum(middle_center); d.drawString("<", 18, 16); }
+}
+void button(const Rect& r, const String& label, uint16_t col = BTN) {
+  auto& d = D();
+  d.fillRoundRect(r.x, r.y, r.w, r.h, 8, col);
+  d.setTextColor(FG, col); d.setTextDatum(middle_center);
+  d.drawString(label, r.x + r.w / 2, r.y + r.h / 2);
+}
+bool backHit(int x, int y) { return y < 32 && x < 60; }
+
+// ---------- screens
+void drawMain() {
+  title("Meny", false);
+  D().setTextDatum(middle_right); D().setTextColor(BG, ACC); D().drawString("X", kW - 12, 16);
+  const char* labels[6] = {"Wi-Fi", "Bluetooth", "Volym", "Info", "Starta om", "Stäng"};
+  for (int i = 0; i < 6; ++i) button(gridCell(i, 2, 3), labels[i], i == 4 ? WARN : BTN);
+}
+void drawWifi() {
+  title("Välj Wi-Fi");
+  auto& d = D();
+  if (!g_netCount) { d.setTextColor(FG, BG); d.setTextDatum(middle_center); d.drawString("Inga nätverk hittades", kW / 2, 120); }
+  for (int i = 0; i < kPerPage; ++i) {
+    int n = g_page * kPerPage + i; if (n >= g_netCount) break;
+    Rect r{6, 38 + i * 44, kW - 12, 40};
+    String l = g_ssid[n].substring(0, 22) + (g_open[n] ? "  (öppet)" : "") ;
+    d.fillRoundRect(r.x, r.y, r.w, r.h, 6, BTN);
+    d.setTextColor(FG, BTN); d.setTextDatum(middle_left); d.drawString(l, r.x + 8, r.y + 20);
+    d.setTextDatum(middle_right); d.drawString(String(g_rssi[n]) + " dBm", r.x + r.w - 8, r.y + 20);
+  }
+  button({6, 216, 100, 22}, "Föreg.");
+  button({110, 216, 100, 22}, "Sök igen");
+  button({214, 216, 100, 22}, "Nästa");
+}
+void scanWifi() {
+  title("Söker nätverk...");
+  wifi_mode_t m = WiFi.getMode();
+  if (m == WIFI_OFF) WiFi.mode(WIFI_STA); else if (m == WIFI_AP) WiFi.mode(WIFI_AP_STA);
+  int n = WiFi.scanNetworks(false, false);
+  g_netCount = 0;
+  for (int i = 0; i < n && g_netCount < kMaxNets; ++i) {
+    String s = WiFi.SSID(i); if (!s.length()) continue;
+    bool dup = false; for (int j = 0; j < g_netCount; ++j) if (g_ssid[j] == s) dup = true;
+    if (dup) continue;
+    g_ssid[g_netCount] = s; g_rssi[g_netCount] = WiFi.RSSI(i); g_open[g_netCount] = WiFi.encryptionType(i) == WIFI_AUTH_OPEN; ++g_netCount;
+  }
+  WiFi.scanDelete();
+  g_page = 0;
+  Serial.printf("Menu: wifi scan found %d\n", g_netCount);
+}
+void drawKeyboard() {
+  auto& d = D();
+  d.fillScreen(BG);
+  d.setFont(&fonts::efontJA_16);
+  d.setTextColor(ACC, BG); d.setTextDatum(top_left);
+  d.drawString("< " + g_chosen.substring(0, 24), 4, 2);
+  d.fillRect(4, 24, kW - 8, 34, BTN);
+  d.setTextColor(FG, BTN); d.setTextDatum(middle_left);
+  std::string shown = g_showPass ? g_pass : std::string(g_pass.size(), '*');
+  if (shown.size() > 30) shown = shown.substr(shown.size() - 30);
+  d.drawString((String(shown.c_str()) + "_"), 10, 41);
+  d.setTextDatum(middle_right); d.drawString(g_showPass ? "dölj" : "visa", kW - 10, 41);
+  auto r = rows(g_layer);
+  d.setTextDatum(middle_center);
+  for (int row = 0; row < 4; ++row)
+    for (int c = 0; c < 10; ++c) {
+      int x = c * kKeyW, y = kKbTop + row * kKeyH;
+      d.fillRoundRect(x + 1, y + 1, kKeyW - 2, kKeyH - 2, 4, BTN);
+      char s[2] = {r[row][c], 0};
+      d.setTextColor(FG, BTN); d.drawString(s, x + kKeyW / 2, y + kKeyH / 2);
+    }
+  int y = kKbTop + 4 * kKeyH;
+  button({1, y + 1, 46, kKeyH - 2}, g_layer == Layer::Upper ? "abc" : "Aa");
+  button({49, y + 1, 46, kKeyH - 2}, g_layer == Layer::Sym ? "abc" : "#!");
+  button({97, y + 1, 94, kKeyH - 2}, "mellanslag");
+  button({193, y + 1, 46, kKeyH - 2}, "<-");
+  button({241, y + 1, 78, kKeyH - 2}, "Anslut", ACC);
+}
+void drawBluetooth() {
+  title("Bluetooth");
+  auto& d = D();
+  d.setTextColor(FG, BG); d.setTextDatum(top_left);
+  bool on = BleBridge::enabled();
+  d.drawString(on ? (BleBridge::connected() ? "Status: ansluten" : "Status: synlig, väntar") : "Status: av", 10, 42);
+  if (on) {
+    d.drawString("Namn: " + H.robotName, 10, 64);
+    d.drawString("PIN vid parkoppling:", 10, 86);
+    d.setTextSize(2); d.setTextColor(ACC, BG);
+    char p[8]; snprintf(p, sizeof p, "%06u", (unsigned)BleBridge::pin()); d.drawString(p, 10, 106);
+    d.setTextSize(1);
+  } else {
+    d.drawString("Slå på för att styra från", 10, 70);
+    d.drawString("telefonen i Command Hub.", 10, 90);
+  }
+  button({6, 150, 150, 40}, on ? "Stäng av" : "Slå på", on ? WARN : ACC);
+  bool boot = H.bleAtBoot && H.bleAtBoot();
+  button({164, 150, 150, 40}, boot ? "Vid start: på" : "Vid start: av");
+  d.setTextColor(0x8410, BG); d.setTextDatum(top_left);
+  d.drawString("Stäng av när du inte använder den.", 6, 200);
+}
+void drawVolume() {
+  title("Volym");
+  auto& d = D();
+  uint8_t v = H.getVolume ? H.getVolume() : 0;
+  d.setTextColor(FG, BG); d.setTextDatum(middle_center); d.setTextSize(2);
+  d.drawString(String(v * 100 / 255) + " %", kW / 2, 80); d.setTextSize(1);
+  d.drawRect(20, 110, kW - 40, 16, FG); d.fillRect(22, 112, (kW - 44) * v / 255, 12, ACC);
+  button({6, 150, 150, 60}, "-");
+  button({164, 150, 150, 60}, "+");
+}
+void drawInfo() {
+  title("Info");
+  auto& d = D();
+  d.setTextColor(FG, BG); d.setTextDatum(top_left);
+  bool wl = WiFi.status() == WL_CONNECTED;
+  int y = 40;
+  auto line = [&](const String& s) { d.drawString(s, 8, y); y += 22; };
+  line("Firmware: " + H.firmware);
+  line("Wi-Fi: " + (wl ? WiFi.SSID() + " " + String(WiFi.RSSI()) + " dBm" : String("ej ansluten")));
+  line("IP: " + (wl ? WiFi.localIP().toString() : (WiFi.getMode() & WIFI_AP) ? WiFi.softAPIP().toString() + " (setup)" : String("-")));
+  line("Bluetooth: " + String(BleBridge::enabled() ? (BleBridge::connected() ? "ansluten" : "på") : "av"));
+  line("Batteri: " + String(M5.Power.getBatteryLevel()) + " %");
+  line("Minne: " + String(ESP.getFreeHeap() / 1024) + " kB / PSRAM " + String(ESP.getFreePsram() / 1024) + " kB");
+  line("Drifttid: " + String(millis() / 60000) + " min");
+}
+void drawMessage() {
+  title(g_msg.c_str(), false);
+}
+void draw() {
+  switch (g_screen) {
+    case Screen::Main: drawMain(); break;
+    case Screen::Wifi: drawWifi(); break;
+    case Screen::Keyboard: drawKeyboard(); break;
+    case Screen::Bluetooth: drawBluetooth(); break;
+    case Screen::Volume: drawVolume(); break;
+    case Screen::Info: drawInfo(); break;
+    case Screen::Message: drawMessage(); break;
+  }
+}
+void go(Screen s) { g_screen = s; draw(); }
+void close() {
+  g_active = false; g_pass.clear();
+  Serial.println("Menu: closed");
+  if (H.onClose) H.onClose();
+}
+void connectChosen() {
+  g_msg = "Sparar, startar om...";
+  go(Screen::Message);
+  String pw = String(jsonEscape(g_pass).c_str());
+  String ss = String(jsonEscape(std::string(g_chosen.c_str())).c_str());
+  g_pass.assign(g_pass.size(), '\0'); g_pass.clear();
+  // Never log the password. Save secret first, then SSID + reboot.
+  String r1 = H.api(true, "/api/secrets", "{\"wifi_password\":\"" + pw + "\"}");
+  Serial.printf("Menu: wifi secret save -> %s\n", r1.substring(0, 3).c_str());
+  pw = "";
+  H.api(true, "/api/runtime", "{\"wifi_ssid\":\"" + ss + "\",\"wifi_enabled\":true,\"web_enabled\":true,\"reboot\":true}");
+}
+
+void tap(int x, int y) {
+  switch (g_screen) {
+    case Screen::Main: {
+      if (y < 32 && x > kW - 50) { close(); return; }
+      switch (gridHit(x, y, 2, 3)) {
+        case 0: scanWifi(); go(Screen::Wifi); break;
+        case 1: go(Screen::Bluetooth); break;
+        case 2: go(Screen::Volume); break;
+        case 3: go(Screen::Info); break;
+        case 4: g_msg = "Startar om..."; go(Screen::Message); delay(400); ESP.restart(); break;
+        case 5: close(); break;
+      }
+      return;
+    }
+    case Screen::Wifi:
+      if (backHit(x, y)) { go(Screen::Main); return; }
+      if (y >= 214) {
+        if (x < 108 && g_page > 0) --g_page;
+        else if (x >= 108 && x < 212) scanWifi();
+        else if (x >= 212 && (g_page + 1) * kPerPage < g_netCount) ++g_page;
+        draw(); return;
+      }
+      for (int i = 0; i < kPerPage; ++i) {
+        int n = g_page * kPerPage + i;
+        if (n < g_netCount && Rect{6, 38 + i * 44, kW - 12, 40}.hit(x, y)) {
+          g_chosen = g_ssid[n]; g_pass.clear(); g_layer = Layer::Lower;
+          if (g_open[n]) connectChosen(); else go(Screen::Keyboard);
+          return;
+        }
+      }
+      return;
+    case Screen::Keyboard: {
+      if (y < 22 && x < 120) { g_pass.clear(); go(Screen::Wifi); return; }
+      if (y >= 24 && y < 58 && x > kW - 60) { g_showPass = !g_showPass; draw(); return; }
+      Key k = keyAt(x, y, g_layer);
+      if (k.action == Action::None) return;
+      if (apply(g_pass, g_layer, k)) { connectChosen(); return; }
+      if (k.action == Action::Ok) { g_msg = "Minst 8 tecken"; } 
+      draw(); return;
+    }
+    case Screen::Bluetooth:
+      if (backHit(x, y)) { go(Screen::Main); return; }
+      if (Rect{6, 150, 150, 40}.hit(x, y)) { title(BleBridge::enabled() ? "Stänger av..." : "Startar..."); if (H.setBle) H.setBle(!BleBridge::enabled()); draw(); }
+      else if (Rect{164, 150, 150, 40}.hit(x, y) && H.setBleAtBoot) { H.setBleAtBoot(!(H.bleAtBoot && H.bleAtBoot())); draw(); }
+      return;
+    case Screen::Volume: {
+      if (backHit(x, y)) {
+        // Persist on leave (one flash write instead of one per press).
+        if (H.api && H.getVolume) H.api(true, "/api/runtime", "{\"speaker_volume\":" + String(H.getVolume()) + "}");
+        go(Screen::Main); return;
+      }
+      int v = H.getVolume ? H.getVolume() : 0;
+      if (Rect{6, 150, 150, 60}.hit(x, y)) v -= 25; else if (Rect{164, 150, 150, 60}.hit(x, y)) v += 25; else return;
+      v = v < 0 ? 0 : v > 255 ? 255 : v;
+      if (H.setVolume) H.setVolume(static_cast<uint8_t>(v));
+      draw(); return;
+    }
+    case Screen::Info: if (backHit(x, y)) go(Screen::Main); return;
+    case Screen::Message: return;
+  }
+}
+}  // namespace
+
+namespace TouchMenu {
+void begin(const Hooks& hooks) { H = hooks; }
+bool active() { return g_active; }
+void open() {
+  if (g_active) return;
+  if (H.onOpen) H.onOpen();
+  ScreenImage::clear();
+  g_active = true; g_lastTouch = millis(); g_wasPressed = true;  // ignore the opening hold's release
+  Serial.println("Menu: opened");
+  go(Screen::Main);
+}
+bool loop(bool pressed, int x, int y) {
+  if (!g_active) return false;
+  uint32_t now = millis();
+  if (pressed && !g_wasPressed) { g_lastTouch = now; tap(x, y); }
+  g_wasPressed = pressed;
+  if (g_active && g_screen == Screen::Bluetooth) {
+    static uint32_t last = 0; static bool lastConn = false;
+    if (BleBridge::connected() != lastConn && now - last > 300) { lastConn = BleBridge::connected(); last = now; draw(); }
+  }
+  if (g_active && g_screen != Screen::Message && now - g_lastTouch > kIdleCloseMs) close();
+  return true;
+}
+}  // namespace TouchMenu

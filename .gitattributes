@@ -1,0 +1,3 @@
+# Lagra alla filer exakt som de är (inga radslutskonverteringar).
+# prepare_apps.py kräver byte-identisk v61-källa.
+* -text
