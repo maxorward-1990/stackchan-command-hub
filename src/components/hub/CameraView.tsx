@@ -36,8 +36,8 @@ export function CameraView() {
           if (!alive) break;
           {
             const msg = (e as Error).message;
-            // camera_capture_or_jpeg_failed before v78 = the driver could not get a 30 KiB internal memory block.
-            setErr(msg.includes("camera_capture_or_jpeg_failed") ? `${msg} – kameran fick inte minne att starta. Firmware v78 eller senare löser det.` : msg);
+            // v77: no 30 KiB internal block; v78: no camera clock while the mic is off (fixed in v79). See [CAMERA] lines.
+            setErr(msg.includes("camera_capture_or_jpeg_failed") ? `${msg} – kameran gav ingen bild. Raderna [CAMERA] i Felsökning → USB-logg visar varför.` : msg);
           }
           setUsbOn(false); setSrc(""); break;
         }

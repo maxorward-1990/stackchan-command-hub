@@ -189,6 +189,25 @@ describe("runDiagnosis", () => {
     expect(r.steps.find((s) => s.id === "baseline")!.verdict).toBe("ok");
   });
 
+  it("asks the spoken question in English when the computer has no Swedish voice", async () => {
+    const f = fakeRobot();
+    f.deps.hasVoice = async () => false;
+    const r = await runDiagnosis(f.deps, { ...OPTS, servo: false });
+    expect(f.calls).toContain("speak:What is three plus three?");
+    expect(f.calls).not.toContain("speak:Vad är tre plus tre?");
+    expect(r.steps.find((s) => s.id === "voice")!.metrics["fråga_språk"]).toBe("en-US");
+  });
+
+  it("tests the camera right after motion", async () => {
+    const f = fakeRobot();
+    let frames = 0;
+    f.deps.robot.cameraFrame = async () => { frames++; return frames === 2 ? { ok: false, error: "camera_capture_or_jpeg_failed" } : { ok: true, jpeg_bytes: 4000 }; };
+    const r = await runDiagnosis(f.deps, { ...OPTS, voiceSim: false });
+    const servo = r.steps.find((s) => s.id === "servo")!;
+    expect(servo.metrics["kamera_efter_rörelse_ok"]).toBe(false);
+    expect(servo.verdict).toBe("varning");
+  });
+
   it("marks a step as failed when the owner answers no", async () => {
     const f = fakeRobot();
     f.deps.ask = async (q) => !q.startsWith("Nickade");

@@ -1,6 +1,6 @@
-"""Reproducible v61 + apps overlay (v78: camera DMA into PSRAM so capture no longer needs a 30 KiB internal block, speaker start diagnostics; v77: bounded diagnostic mode keeps standard-diagnosis turns out of dialogue memory, real wake-word status; v76: DMA guard only before wake listening starts; v75: lamp worker cannot starve the wake microphone; v74: unlocked end-of-speech sensitivity; v73: quantized wake threshold; v72: adjustable threshold; v71: widget stop, sub-minute timers, swipe close). No withdrawn voice changes enter the build.
-Run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-v78
-Then: PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core python3 -m platformio run -d /tmp/stackchan-v78
+"""Reproducible v61 + apps overlay (v79: camera borrows the codec MCLK when the mic is off, diagnostic mode blocks lamp control; v78: camera DMA into PSRAM so capture no longer needs a 30 KiB internal block, speaker start diagnostics; v77: bounded diagnostic mode keeps standard-diagnosis turns out of dialogue memory, real wake-word status; v76: DMA guard only before wake listening starts; v75: lamp worker cannot starve the wake microphone; v74: unlocked end-of-speech sensitivity; v73: quantized wake threshold; v72: adjustable threshold; v71: widget stop, sub-minute timers, swipe close). No withdrawn voice changes enter the build.
+Run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-v79
+Then: PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core python3 -m platformio run -d /tmp/stackchan-v79
 """
 from pathlib import Path
 import shutil
@@ -41,7 +41,7 @@ def edit(name, replacements):
         text = text.replace(old, new)
     path.write_text(text)
 
-edit("FirmwareVersion.h", [('"custom-v61"', '"custom-v78"')])
+edit("FirmwareVersion.h", [('"custom-v61"', '"custom-v79"')])
 apply_wake_threshold(edit)
 # v74: honour the saved end-of-speech setting instead of always END_SENSITIVITY_LOW.
 VAD_END = [('"END_SENSITIVITY_LOW"; // v18: HIGH cut Swedish speech at micro-pauses',
@@ -359,6 +359,52 @@ edit("GeminiLiveProbe.cpp", [
      "      audio_chunks_ = 0;\n"),
 ])
 assert "esp_camera_set_psram_mode(true)" in (target / "src/CameraCapture.cpp").read_text()
+# v79: the v78 diagnosis log showed every capture succeeding while the wake-word mic ran and every capture failing
+# (esp_camera_fb_get() == NULL, previously unlogged) right after "[WAKE] paused" - e.g. after servo motion, which
+# pauses wake listening. The GC0308 has no MCU-driven XCLK (pin_xclk=-1); its clock evidently comes from the codec
+# MCLK on GPIO0, which only runs while the mic is active. When the mic is off and nothing is playing, the camera now
+# starts the mic for the capture (before releasing In_I2C, which the codec also uses) and ends it after In_I2C is
+# restored. Failures are logged with the mic state. Separately, diagnostic mode refuses control_lights: a garbled
+# simulated question was interpreted as a lamp command and switched real lights during the diagnosis.
+edit("CameraCapture.cpp", [
+    ("#include <esp_heap_caps.h>\n", "#include <esp_heap_caps.h>\n#include \"AudioDiagnostics.h\"\nstatic bool s_micClockBorrowed = false;  // v79: mic started only to clock the camera\n"),
+    ("  M5.In_I2C.release();\n  esp_camera_set_psram_mode(true);",
+     "  // v79: the camera clock comes from the codec MCLK (GPIO0), which only runs while the mic is active.\n"
+     "  s_micClockBorrowed = false;\n"
+     "  if (!M5.Mic.isRunning() && !M5.Speaker.isPlaying() && !AudioDiagnostics::busy()) {\n"
+     "    if (M5.Speaker.isRunning()) M5.Speaker.end();\n"
+     "    s_micClockBorrowed = M5.Mic.begin();\n"
+     "  }\n"
+     "  Serial.printf(\"[CAMERA] clock mic_running=%d borrowed=%d\\n\", M5.Mic.isRunning(), s_micClockBorrowed);\n"
+     "  M5.In_I2C.release();\n  esp_camera_set_psram_mode(true);"),
+    ('    Serial.printf("Camera: hardware deinit; In_I2C restore=%s\\n", i2cRestored ? "ok" : "failed");\n',
+     '    Serial.printf("Camera: hardware deinit; In_I2C restore=%s\\n", i2cRestored ? "ok" : "failed");\n'
+     '    if (s_micClockBorrowed) { M5.Mic.end(); s_micClockBorrowed = false; Serial.println("[CAMERA] mic clock returned"); }\n'),
+    ('    Serial.printf("Camera: init failed err=%d\\n", static_cast<int>(err));\n    return false;\n',
+     '    Serial.printf("Camera: init failed err=%d\\n", static_cast<int>(err));\n'
+     '    M5.In_I2C.begin();  // v79: init failure left the internal I2C bus released (LEDs, codec)\n'
+     '    if (s_micClockBorrowed) { M5.Mic.end(); s_micClockBorrowed = false; }\n'
+     '    return false;\n'),
+    ("  camera_fb_t* fb = esp_camera_fb_get();\n  if (!fb) {\n    deinitHardware_();\n",
+     "  camera_fb_t* fb = esp_camera_fb_get();\n  if (!fb) {\n"
+     "    Serial.printf(\"[CAMERA] no frame mic_running=%d borrowed=%d\\n\", M5.Mic.isRunning(), s_micClockBorrowed);\n"
+     "    deinitHardware_();\n"),
+])
+edit("GeminiLiveProbe.cpp", [
+    ('      if (toolName == "control_lights") {\n        if (id && id[0] && pending_search_id_.isEmpty()',
+     '      if (toolName == "control_lights") {\n'
+     '        if (DiagnosticMode::active()) {  // v79: a diagnosis must never switch real lights\n'
+     '          Serial.println("[DIAG] control_lights blocked (diagnostic mode)");\n'
+     '          auto blocked = functionResponses.add<JsonObject>();\n'
+     '          if (id && id[0]) blocked["id"] = id;\n'
+     '          blocked["name"] = name; blocked["response"]["ok"] = false;\n'
+     '          blocked["response"]["error"] = "diagnostic_mode_no_physical_actions";\n'
+     '          continue;\n'
+     '        }\n'
+     '        if (id && id[0] && pending_search_id_.isEmpty()'),
+])
+_cam = (target / "src/CameraCapture.cpp").read_text()
+assert _cam.count("s_micClockBorrowed = M5.Mic.begin();") == 1 and _cam.count("M5.Mic.end(); s_micClockBorrowed = false;") == 2
 _glp = (target / "src/GeminiLiveProbe.cpp").read_text()
 assert _glp.count("if (!DiagnosticMode::active()) memory_->appendDialogue(") == 2 and _glp.count("memory_->appendDialogue(") == 2
 _sh = (target / "src/SmartHome.cpp").read_text()
@@ -379,4 +425,4 @@ apply_wake_threshold(expected_edit)
 for name in PATCHED_MODULES:
     assert (target / "src" / name).read_text() == expected[name], name
 assert (target / "partitions_wake16MB.csv").read_bytes() == (ROOT / "firmware/partitions_wake16MB.csv").read_bytes()
-print(f"Prepared {target}: v61 voice/memory + v71 apps + threshold-only wake tuning (no peak gate/proximity/reset) + v77 diagnostic mode + v78 PSRAM camera DMA/speaker diagnostics")
+print(f"Prepared {target}: v61 voice/memory + v71 apps + threshold-only wake tuning (no peak gate/proximity/reset) + v77 diagnostic mode + v78 PSRAM camera DMA/speaker diagnostics + v79 camera mic clock/diagnostic lamp block")

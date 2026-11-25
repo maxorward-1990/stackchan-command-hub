@@ -19,13 +19,27 @@ function download(pkg: Package) {
   URL.revokeObjectURL(url);
 }
 
+/** Voices load asynchronously in Chrome; wait briefly for them. */
+async function voices(): Promise<SpeechSynthesisVoice[]> {
+  const synth = window.speechSynthesis;
+  let list = synth.getVoices();
+  if (list.length) return list;
+  await new Promise<void>((resolve) => { const t = setTimeout(resolve, 1500); synth.addEventListener("voiceschanged", () => { clearTimeout(t); resolve(); }, { once: true }); });
+  list = synth.getVoices();
+  return list;
+}
+async function hasVoice(prefix: string): Promise<boolean> {
+  return (await voices()).some((v) => v.lang.toLowerCase().startsWith(prefix.toLowerCase()));
+}
+
 /** Computer speech for the voice simulation (Web Speech API); resolves when the phrase has been spoken. */
-function speak(text: string, lang: string): Promise<void> {
+async function speak(text: string, lang: string): Promise<void> {
+  const list = await voices();
   return new Promise((resolve) => {
     const synth = window.speechSynthesis;
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang; u.rate = 0.95; u.volume = 1;
-    const voice = synth.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase().slice(0, 2)));
+    const voice = list.find((v) => v.lang.toLowerCase() === lang.toLowerCase()) ?? list.find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase().slice(0, 2)));
     if (voice) u.voice = voice;
     const done = () => resolve();
     u.onend = done; u.onerror = done;
@@ -79,7 +93,7 @@ export function StandardDiagnosis() {
           const timer = setTimeout(() => { setQuestion(null); resolve(null); }, 120000);
           setQuestion({ text, answer: (v) => { clearTimeout(timer); setQuestion(null); resolve(v); } });
         }),
-        ...(canSpeak ? { speak } : {}),
+        ...(canSpeak ? { speak, hasVoice } : {}),
         progress: (index, count, title) => setStep({ index, count, title }),
         aborted: () => abort.current || !serialConnected(),
       }, { ...options, voiceSim: options.voiceSim && canSpeak }, previous());

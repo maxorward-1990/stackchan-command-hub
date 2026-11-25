@@ -48,6 +48,8 @@ export interface DiagnosisDeps {
   ask(question: string): Promise<boolean | null>;
   /** Speak through the computer's speaker (voice simulation); absent = unsupported. */
   speak?(text: string, lang: string): Promise<void>;
+  /** Whether the computer has a speech voice for a language prefix ("sv"); absent = assume yes. */
+  hasVoice?(langPrefix: string): Promise<boolean>;
   progress(stepIndex: number, stepCount: number, title: string): void;
   aborted(): boolean;
 }
@@ -249,6 +251,14 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       let t = deps.now(); await robot.gesture("nod_yes"); await waitIdle(8000); r.metrics["gest_ms"] = deps.now() - t;
       t = deps.now(); await robot.look(30, 0, 600); await wait(1200); await robot.home(); await wait(1200); r.metrics["titta_och_hem_ms"] = deps.now() - t;
       r.metrics["status_efter"] = JSON.stringify(await robot.servoStatus()).slice(0, 200);
+      if (options.camera) {
+        // Motion pauses wake listening (mic off); v78 lost the camera clock exactly then.
+        await robot.gesture("nod_yes");
+        const cam = await robot.cameraFrame().catch((e: Error) => ({ ok: false, error: e.message, jpeg_bytes: 0 }));
+        r.metrics["kamera_efter_rörelse_ok"] = cam.ok;
+        if (!cam.ok) warn(r, `Kameran misslyckades direkt efter rörelse: ${cam.error ?? "ingen bild"}`.slice(0, 200));
+        await waitIdle(8000);
+      }
       await askOwner(r, "servo", "Nickade roboten, tittade åt sidan och kom tillbaka till mitten?");
     }, options.servo);
 
@@ -314,6 +324,11 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       const s = await statusSnap();
       if (get(s, "wake_word_available") === false && get(s, "wake_word_listening") === false) { r.verdict = "hoppad"; r.notes.push("Väckordet lyssnar inte (avstängt eller modell saknas)."); return; }
       let detected = 0, notListening = 0; const latencies: number[] = []; const answers: number[] = [];
+      // A Swedish sentence read by an English voice comes out as letters ("V A D ...") and can be
+      // misheard as a command; ask in English when the computer has no Swedish voice.
+      const swedish = deps.hasVoice ? await deps.hasVoice("sv") : true;
+      const question = swedish ? { text: "Vad är tre plus tre?", lang: "sv-SE" } : { text: "What is three plus three?", lang: "en-US" };
+      r.metrics["fråga_språk"] = question.lang;
       const wakeListening = async () => {
         const t = deps.now();
         while (deps.now() - t < 25000) {
@@ -338,7 +353,7 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
         detected++; latencies.push(hit.ms);
         await wait(1200);
         const reply = waitFor((l) => l.startsWith("[TID] uppspelning_klar_ms") || l.startsWith("[TUR] klar"), 30000);
-        await deps.speak("Vad är tre plus tre?", "sv-SE");
+        await deps.speak(question.text, question.lang);
         const done = await reply;
         if (done) answers.push(done.ms); else r.notes.push(`Försök ${i + 1}: inget färdigt svar på den talade frågan.`);
       }
