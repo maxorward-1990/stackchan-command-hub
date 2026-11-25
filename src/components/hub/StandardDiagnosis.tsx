@@ -39,6 +39,7 @@ const OPTION_LABELS: [keyof Omit<DiagnosisOptions, "idleSeconds">, string][] = [
   ["camera", "Kamera (en bild, sparas inte)"],
   ["voiceSim", "Röstsimulering via datorns högtalare (ställ roboten nära, volym upp)"],
   ["lampService", "Lamptjänsten (listar bara, tänder/släcker inget)"],
+  ["performance", "Prestandamätning varje sekund (CPU, minne, loop-tider)"],
 ];
 
 export function StandardDiagnosis() {
@@ -68,7 +69,7 @@ export function StandardDiagnosis() {
     setError(""); setResult(null); abort.current = false; setRunning(true);
     let recording: TestReport | null = null;
     try {
-      await recorder.start();
+      await recorder.start({ performance: options.performance });
       const res = await runDiagnosis({
         robot,
         subscribe: onSerialLine,

@@ -51,8 +51,8 @@ export interface DiagnosisDeps {
   progress(stepIndex: number, stepCount: number, title: string): void;
   aborted(): boolean;
 }
-export interface DiagnosisOptions { servo: boolean; camera: boolean; voiceSim: boolean; lampService: boolean; idleSeconds: number }
-export const DEFAULT_OPTIONS: DiagnosisOptions = { servo: true, camera: true, voiceSim: true, lampService: false, idleSeconds: 60 };
+export interface DiagnosisOptions { servo: boolean; camera: boolean; voiceSim: boolean; lampService: boolean; performance: boolean; idleSeconds: number }
+export const DEFAULT_OPTIONS: DiagnosisOptions = { servo: true, camera: true, voiceSim: true, lampService: false, performance: true, idleSeconds: 60 };
 
 export type Verdict = "ok" | "varning" | "fel" | "hoppad";
 export interface StepResult { id: string; title: string; verdict: Verdict; ms: number; metrics: Record<string, number | string | boolean | null>; notes: string[] }
@@ -130,7 +130,7 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       check();
       const s = await statusSnap().catch(() => null);
       if (s && !get(s, "gemini.speaking") && !get(s, "gemini.recording") && !get(s, "gemini.tool_pending") && !get(s, "gemini.continuous")) return true;
-      await deps.sleep(500);
+      await deps.sleep(1000);
     }
     return false;
   };
@@ -209,7 +209,7 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       falseWakes += wakesSince(t);
       key["vila_heap_min"] = r.metrics["heap_min"] as number | null;
       key["vila_största_block_min"] = r.metrics["största_block_min"] as number | null;
-      if (!ps.length) warn(r, "Inga prestandaprov togs emot (USB-telemetri saknas).");
+      if (!ps.length && options.performance) warn(r, "Inga prestandaprov togs emot (USB-telemetri saknas).");
     });
 
     // 2. Hardware without big movement.
@@ -416,6 +416,13 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
   for (let i = 1; i < uptimes.length; i++) if (uptimes[i]! < uptimes[i - 1]!) reboots++;
   const crashes = lines.filter((l) => /Guru Meditation|abort\(\) was called|Backtrace:|Task watchdog|panic'ed|Brownout/i.test(l.line)).length;
   key["omstarter"] = reboots; key["krascher"] = crashes; key["falska_väckningar"] = falseWakes;
+  // Firmware logs internal memory whenever the wake model is released/loaded; works with telemetry off.
+  const mem = (phase: string) => lines.map((l) => (l.line.startsWith(`[WAKE] memory phase=${phase} `) ? Number(/internal_largest=(\d+)/.exec(l.line)?.[1]) : NaN)).filter((n) => Number.isFinite(n));
+  const released = mem("released"), loaded = mem("loaded");
+  key["block_utan_modell_först"] = released[0] ?? null;
+  key["block_utan_modell_min"] = released.length ? Math.min(...released) : null;
+  key["block_med_modell_min"] = loaded.length ? Math.min(...loaded) : null;
+  key["prestandamätning"] = options.performance ? 1 : 0;
   const global: StepResult = { id: "global", title: "Hela körningen", verdict: reboots || crashes ? "fel" : "ok", ms: deps.now() - startedAtMs, metrics: { omstarter: reboots, krascher: crashes, loggrader: lines.length, prestandaprov: perfLog.length }, notes: [] };
   if (reboots) global.notes.push(`Roboten startade om ${reboots} gång(er) under testet.`);
   if (crashes) global.notes.push(`${crashes} kraschrader i loggen.`);
@@ -441,6 +448,8 @@ const LABELS: Record<string, { label: string; better: "lower" | "higher" }> = {
   slut_största_block_min: { label: "Största minnesblock efter belastning", better: "higher" },
   sök_ms: { label: "Söktid", better: "lower" },
   falska_väckningar: { label: "Falska väckningar i tystnad", better: "lower" },
+  block_utan_modell_min: { label: "Minsta minnesblock (väckordsmodell urladdad)", better: "higher" },
+  block_med_modell_min: { label: "Minsta minnesblock (väckordsmodell laddad)", better: "higher" },
   verktyg_före_ljud_snitt: { label: "Verktyg före första ljud", better: "lower" },
 };
 export function compare(now: Record<string, number | null>, previous: DiagnosisResult | null, firmware: string): string[] {

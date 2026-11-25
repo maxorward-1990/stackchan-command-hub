@@ -59,7 +59,8 @@ export class TestRecording {
     const [status, runtime] = await Promise.allSettled([this.deps.status(), this.deps.runtime()]);
     this.snapshots.push({ phase, receivedAt: new Date(this.deps.now()).toISOString(), status: status.status === 'fulfilled' ? safeSnapshot(status.value) : { unavailable: true }, runtime: runtime.status === 'fulfilled' ? safeSnapshot(runtime.value) : { unavailable: true } });
   }
-  async start() {
+  async start(options: { performance?: boolean } = {}) {
+    const wantPerf = options.performance ?? true;
     if (this.active || this.busy) throw new Error('Ett test pågår redan.');
     if (!this.deps.connected()) throw new Error('Anslut USB först; fullständig logginsamling kräver USB.');
     this.busy = true; this.report = null; this.events = []; this.snapshots = []; this.bytes = 0; this.dropped = 0; this.stopping = null;
@@ -68,8 +69,10 @@ export class TestRecording {
     let enabled = false;
     try {
       this.previousPerf = (await this.deps.performance()).enabled;
-      const ack = await this.deps.performance(true); enabled = true;
-      if (!ack.enabled) throw new Error('Roboten kunde inte slå på prestandamätningen.');
+      if (wantPerf) {
+        const ack = await this.deps.performance(true); enabled = true;
+        if (!ack.enabled) throw new Error('Roboten kunde inte slå på prestandamätningen.');
+      }
       await this.snapshot('start');
       this.marker('Test started: serial, transcripts, timing, performance and status.');
       this.timer = setTimeout(() => { void this.stop('30-minute limit').catch(() => undefined); }, TEST_MAX_MS);

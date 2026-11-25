@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { compare, DIAGNOSIS_STEPS, runDiagnosis, TEXT_TURNS, VOICE_TRIES, type DiagnosisDeps, type DiagnosisOptions, type DiagnosisResult, type DiagnosisRobot } from "./standard-diagnosis";
 
-const OPTS: DiagnosisOptions = { servo: true, camera: true, voiceSim: true, lampService: true, idleSeconds: 2 };
+const OPTS: DiagnosisOptions = { servo: true, camera: true, voiceSim: true, lampService: true, performance: true, idleSeconds: 2 };
 
 /** A simulated robot on a virtual clock: serial lines are emitted as fake time advances. */
-function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; rebootAt?: number | undefined; wakeMisses?: number; keepTalking?: boolean; ghostWakeAt?: number | undefined } = {}) {
+function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; rebootAt?: number | undefined; wakeMisses?: number; keepTalking?: boolean; ghostWakeAt?: number | undefined; memoryLines?: boolean } = {}) {
   let now = 1_000_000;
   let uptime = 50_000;
   const queue: { at: number; line: string }[] = [];
@@ -24,6 +24,7 @@ function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; reboo
       uptime += 50;
       if (over.ghostWakeAt !== undefined && now - 1_000_000 >= over.ghostWakeAt) { over.ghostWakeAt = undefined; sub?.("[WAKE] detected word=histackchan threshold=0.486 peak=178"); }
       if (over.rebootAt !== undefined && now - 1_000_000 >= over.rebootAt) { uptime = 1000; over.rebootAt = undefined; }
+      if (over.memoryLines && now - lastPerf >= 1000 && (now / 1000) % 30 === 0) { sub?.("[WAKE] memory phase=released internal_free=67856 internal_largest=19444 psram_free=4872160"); sub?.("[WAKE] memory phase=loaded internal_free=31432 internal_largest=12276 psram_free=4523428"); }
       if (now - lastPerf >= 1000) {
         lastPerf = now;
         sub?.(`[PERF] ${JSON.stringify({ v: 1, fw: "custom-v77", ms: uptime, window_ms: 1000, cpu0: 20, cpu1: 30, ticks0: 1, ticks1: 1, loop_us: 900, gap_us: 0, ws_us: 0, audio_us: 0, mic_us: 0, lcd_us: 0, services_us: 0, loops: 100, frames: 0, queue_ms: 0, slots: 0, underruns: 0, dropped: 0, wait_ms: 0, heap: 80000, largest: 40000, psram: 4000000, stack: 1000, rssi: -55, ble: 0, mode: "idle", skipped: 0 })}`);
@@ -177,6 +178,15 @@ describe("runDiagnosis", () => {
     const r = await runDiagnosis(f.deps, { ...OPTS, voiceSim: false });
     expect(r.keyMetrics["falska_väckningar"]).toBe(1);
     expect(r.steps.find((s) => s.id === "global")!.verdict).toBe("varning");
+  });
+
+  it("reads memory from wake-model log lines, so it works with telemetry off", async () => {
+    const f = fakeRobot({ memoryLines: true });
+    const r = await runDiagnosis(f.deps, { ...OPTS, performance: false, voiceSim: false });
+    expect(r.keyMetrics["block_utan_modell_min"]).toBe(19444);
+    expect(r.keyMetrics["block_med_modell_min"]).toBe(12276);
+    expect(r.keyMetrics["prestandamätning"]).toBe(0);
+    expect(r.steps.find((s) => s.id === "baseline")!.verdict).toBe("ok");
   });
 
   it("marks a step as failed when the owner answers no", async () => {
