@@ -109,10 +109,12 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
   let aborted = false;
   const uptimes: number[] = [];
   const key: Record<string, number | null> = {};
+  let falseWakes = 0;
 
   const check = () => { if (deps.aborted()) throw new DiagnosisAborted(); };
   const wait = async (ms: number) => { const end = deps.now() + ms; while (deps.now() < end) { check(); await deps.sleep(Math.min(250, end - deps.now())); } };
   const perfSince = (t: number) => perfLog.filter((e) => e.t >= t).map((e) => e.s);
+  const wakesSince = (t: number) => lines.filter((l) => l.t >= t && l.line.startsWith("[WAKE] detected")).length;
   const waitFor = async (pred: (line: string) => boolean, timeoutMs: number): Promise<{ line: string; ms: number } | null> => {
     const t0 = deps.now();
     let hit: { line: string; ms: number } | null = null;
@@ -202,6 +204,9 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       r.metrics["cpu0_snitt"] = avg(ps.map((p) => p.cpu0)); r.metrics["cpu1_snitt"] = avg(ps.map((p) => p.cpu1));
       r.metrics["loop_max_us"] = ps.length ? Math.max(...ps.map((p) => p.loop_us)) : null;
       r.metrics["rssi"] = ps.at(-1)?.rssi ?? null;
+      // Nothing is said during the rest, so every detection here is a false wake ("spökstart").
+      r.metrics["falska_väckningar"] = wakesSince(t);
+      falseWakes += wakesSince(t);
       key["vila_heap_min"] = r.metrics["heap_min"] as number | null;
       key["vila_största_block_min"] = r.metrics["största_block_min"] as number | null;
       if (!ps.length) warn(r, "Inga prestandaprov togs emot (USB-telemetri saknas).");
@@ -284,6 +289,7 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
         if (run.toolsBeforeAudio !== undefined) toolsBefore.push(run.toolsBeforeAudio);
         if (run.firstAudioMs !== undefined) firsts.push(run.firstAudioMs);
         if (run.playbackDoneMs !== undefined) dones.push(run.playbackDoneMs);
+        if (turn.id === TEXT_TURNS[0]!.id) await askOwner(r, "röst_hördes", "Hördes robotens röst ur dess högtalare just nu?");
         if (run.error) fail(r, `${turn.id}: ${run.error}`);
         else if (turn.expectTool && !run.tools.some((t) => t.includes(turn.expectTool!))) warn(r, `${turn.id}: väntat verktyg ${turn.expectTool} användes inte (${run.tools.join(",") || "inga"}).`);
         await waitIdle();
@@ -299,7 +305,6 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       key["verktyg_före_ljud_snitt"] = toolsBefore.length ? Math.round((toolsBefore.reduce((a, b) => a + b, 0) / toolsBefore.length) * 10) / 10 : null;
       if ((key["första_ljud_ms_snitt"] ?? 0) > 6000) warn(r, `Långsamt första ljud (${key["första_ljud_ms_snitt"]} ms i snitt, ${key["verktyg_före_ljud_snitt"] ?? "?"} verktyg före tal).`);
       r.metrics["första_ljud_ms_snitt"] = key["första_ljud_ms_snitt"]; r.metrics["uppspelning_klar_ms_snitt"] = key["uppspelning_klar_ms_snitt"];
-      await askOwner(r, "röst_hördes", "Hördes robotens röst ur dess högtalare under de här samtalen?");
       await askOwner(r, "avbrott_tyst", "Tystnade roboten direkt när det långa svaret avbröts?");
     });
 
@@ -371,6 +376,8 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       const t = deps.now();
       await wait(options.idleSeconds * 2000);
       const ps = perfSince(t);
+      r.metrics["falska_väckningar_vila"] = wakesSince(t);
+      falseWakes += wakesSince(t);
       r.metrics["heap_min_efter_vila"] = ps.length ? Math.min(...ps.map((p) => p.heap)) : null;
       r.metrics["största_block_min_efter_vila"] = ps.length ? Math.min(...ps.map((p) => p.largest)) : null;
       key["slut_heap_min"] = r.metrics["heap_min_efter_vila"] as number | null;
@@ -408,10 +415,11 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
   let reboots = 0;
   for (let i = 1; i < uptimes.length; i++) if (uptimes[i]! < uptimes[i - 1]!) reboots++;
   const crashes = lines.filter((l) => /Guru Meditation|abort\(\) was called|Backtrace:|Task watchdog|panic'ed|Brownout/i.test(l.line)).length;
-  key["omstarter"] = reboots; key["krascher"] = crashes;
+  key["omstarter"] = reboots; key["krascher"] = crashes; key["falska_väckningar"] = falseWakes;
   const global: StepResult = { id: "global", title: "Hela körningen", verdict: reboots || crashes ? "fel" : "ok", ms: deps.now() - startedAtMs, metrics: { omstarter: reboots, krascher: crashes, loggrader: lines.length, prestandaprov: perfLog.length }, notes: [] };
   if (reboots) global.notes.push(`Roboten startade om ${reboots} gång(er) under testet.`);
   if (crashes) global.notes.push(`${crashes} kraschrader i loggen.`);
+  if (falseWakes) { global.notes.push(`${falseWakes} falsk(a) väckning(ar) under tysta vilor (spökstarter).`); if (global.verdict === "ok") global.verdict = "varning"; }
   steps.push(global);
 
   const verdict = aborted ? "varning" : worst(steps.map((s) => s.verdict));
@@ -432,6 +440,8 @@ const LABELS: Record<string, { label: string; better: "lower" | "higher" }> = {
   vila_största_block_min: { label: "Största minnesblock i vila", better: "higher" },
   slut_största_block_min: { label: "Största minnesblock efter belastning", better: "higher" },
   sök_ms: { label: "Söktid", better: "lower" },
+  falska_väckningar: { label: "Falska väckningar i tystnad", better: "lower" },
+  verktyg_före_ljud_snitt: { label: "Verktyg före första ljud", better: "lower" },
 };
 export function compare(now: Record<string, number | null>, previous: DiagnosisResult | null, firmware: string): string[] {
   if (!previous) return ["Ingen tidigare körning att jämföra med."];

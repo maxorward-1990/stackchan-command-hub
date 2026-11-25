@@ -4,7 +4,7 @@ import { compare, DIAGNOSIS_STEPS, runDiagnosis, TEXT_TURNS, VOICE_TRIES, type D
 const OPTS: DiagnosisOptions = { servo: true, camera: true, voiceSim: true, lampService: true, idleSeconds: 2 };
 
 /** A simulated robot on a virtual clock: serial lines are emitted as fake time advances. */
-function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; rebootAt?: number | undefined; wakeMisses?: number; keepTalking?: boolean } = {}) {
+function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; rebootAt?: number | undefined; wakeMisses?: number; keepTalking?: boolean; ghostWakeAt?: number | undefined } = {}) {
   let now = 1_000_000;
   let uptime = 50_000;
   const queue: { at: number; line: string }[] = [];
@@ -22,6 +22,7 @@ function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; reboo
     while (now < end) {
       now = Math.min(end, now + 50);
       uptime += 50;
+      if (over.ghostWakeAt !== undefined && now - 1_000_000 >= over.ghostWakeAt) { over.ghostWakeAt = undefined; sub?.("[WAKE] detected word=histackchan threshold=0.486 peak=178"); }
       if (over.rebootAt !== undefined && now - 1_000_000 >= over.rebootAt) { uptime = 1000; over.rebootAt = undefined; }
       if (now - lastPerf >= 1000) {
         lastPerf = now;
@@ -169,6 +170,13 @@ describe("runDiagnosis", () => {
     expect(voice.verdict).toBe("fel");
     expect(voice.notes.join(" ")).toContain("lyssnade inte");
     expect(f.calls).not.toContain("spoke-while-in-conversation");
+  });
+
+  it("counts false wakes during the silent rests", async () => {
+    const f = fakeRobot({ ghostWakeAt: 1500 });
+    const r = await runDiagnosis(f.deps, { ...OPTS, voiceSim: false });
+    expect(r.keyMetrics["falska_väckningar"]).toBe(1);
+    expect(r.steps.find((s) => s.id === "global")!.verdict).toBe("varning");
   });
 
   it("marks a step as failed when the owner answers no", async () => {
