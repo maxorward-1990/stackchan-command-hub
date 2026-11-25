@@ -56,6 +56,13 @@ jobs:
         if: steps.preview.outputs.exists == 'true'
         working-directory: preview
         run: npx -y npm@11 ci --no-audit --no-fund && npm run build:preview
+      # version.json shows exactly which commits are live: /version.json and /preview/version.json.
+      - name: Skriv version.json
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf '{"branch":"main","commit":"%s","published_at":"%s","run":"%s"}\n' "$(git -C main rev-parse HEAD)" "$now" "${{ github.run_number }}" > main/dist/client/version.json
+          if [ -d preview/dist/client ]; then printf '{"branch":"preview","commit":"%s","published_at":"%s","run":"%s"}\n' "$(git -C preview rev-parse HEAD)" "$now" "${{ github.run_number }}" > preview/dist/client/version.json; fi
+          cat main/dist/client/version.json; [ -f preview/dist/client/version.json ] && cat preview/dist/client/version.json || true
       - name: Sätt ihop sidan
         if: steps.preview.outputs.exists == 'true'
         run: node main/tools/assemble-pages.mjs main/dist/client preview/dist/client
