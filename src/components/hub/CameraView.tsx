@@ -34,7 +34,12 @@ export function CameraView() {
           setUsbFps(Math.round(10000 / (performance.now() - t0)) / 10);
         } catch (e) {
           if (!alive) break;
-          setErr(`${(e as Error).message} – kräver firmware v28.`); setUsbOn(false); setSrc(""); break;
+          {
+            const msg = (e as Error).message;
+            // camera_capture_or_jpeg_failed before v78 = the driver could not get a 30 KiB internal memory block.
+            setErr(msg.includes("camera_capture_or_jpeg_failed") ? `${msg} – kameran fick inte minne att starta. Firmware v78 eller senare löser det.` : msg);
+          }
+          setUsbOn(false); setSrc(""); break;
         }
       }
     })();
@@ -87,7 +92,7 @@ export function CameraView() {
             <Button variant="outline" disabled={!src} onClick={() => void box.current?.requestFullscreen?.()}><Expand />Helskärm</Button>
           </div>
           <p className="text-xs text-muted-foreground">{usb
-            ? "USB anslutet: bilden hämtas direkt via kabeln, utan nätverk (ca 1–2 bilder/s, kräver v28)."
+            ? "USB anslutet: bilden hämtas direkt via kabeln, utan nätverk (ca 1–2 bilder/s; från v78 fungerar det även efter längre användning)."
             : <>Wi-Fi-video via bryggan (<code className="font-mono">node tools/robot-proxy.mjs ROBOTENS-IP</code>). Anslut USB för att istället se kameran via kabeln utan nätverk.</>}</p>
         </CardContent>
       </Card>

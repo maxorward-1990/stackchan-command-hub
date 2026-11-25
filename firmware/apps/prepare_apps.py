@@ -1,6 +1,6 @@
-"""Reproducible v61 + apps overlay (v77: bounded diagnostic mode keeps standard-diagnosis turns out of dialogue memory, real wake-word status; v76: DMA guard only before wake listening starts; v75: lamp worker cannot starve the wake microphone; v74: unlocked end-of-speech sensitivity; v73: quantized wake threshold; v72: adjustable threshold; v71: widget stop, sub-minute timers, swipe close). No withdrawn voice changes enter the build.
-Run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-v77
-Then: PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core python3 -m platformio run -d /tmp/stackchan-v77
+"""Reproducible v61 + apps overlay (v78: camera DMA into PSRAM so capture no longer needs a 30 KiB internal block, speaker start diagnostics; v77: bounded diagnostic mode keeps standard-diagnosis turns out of dialogue memory, real wake-word status; v76: DMA guard only before wake listening starts; v75: lamp worker cannot starve the wake microphone; v74: unlocked end-of-speech sensitivity; v73: quantized wake threshold; v72: adjustable threshold; v71: widget stop, sub-minute timers, swipe close). No withdrawn voice changes enter the build.
+Run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-v78
+Then: PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core python3 -m platformio run -d /tmp/stackchan-v78
 """
 from pathlib import Path
 import shutil
@@ -41,7 +41,7 @@ def edit(name, replacements):
         text = text.replace(old, new)
     path.write_text(text)
 
-edit("FirmwareVersion.h", [('"custom-v61"', '"custom-v77"')])
+edit("FirmwareVersion.h", [('"custom-v61"', '"custom-v78"')])
 apply_wake_threshold(edit)
 # v74: honour the saved end-of-speech setting instead of always END_SENSITIVITY_LOW.
 VAD_END = [('"END_SENSITIVITY_LOW"; // v18: HIGH cut Swedish speech at micro-pauses',
@@ -334,6 +334,31 @@ edit("WebConfigServer.cpp", [
      '    sendJson(200, d);\n'
      '  });\n'),
 ])
+# v78: the camera driver allocated a 30 KiB contiguous internal DMA buffer at every init; after normal use the
+# largest internal block is 16-19 KiB, so capture failed on USB and Wi-Fi alike ("cam_dma_config ... malloc failed").
+# esp32-camera's PSRAM DMA mode (public esp_camera_set_psram_mode) streams into the PSRAM frame buffer instead.
+# Speaker start is logged with volume and internal/DMA memory, to explain silent playback without guessing.
+edit("CameraCapture.cpp", [
+    ("#include <esp_camera.h>\n", "#include <esp_camera.h>\n#include <esp_heap_caps.h>\n"),
+    ("  M5.In_I2C.release();\n  esp_err_t err = esp_camera_init(&kCameraConfig);\n",
+     "  M5.In_I2C.release();\n"
+     "  esp_camera_set_psram_mode(true);  // v78: DMA into the PSRAM frame buffer, no 30 KiB internal block\n"
+     "  Serial.printf(\"[CAMERA] init psram_dma=%d internal_largest=%u dma_largest=%u psram_free=%u\\n\", esp_camera_get_psram_mode(),\n"
+     "                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),\n"
+     "                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA), (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));\n"
+     "  esp_err_t err = esp_camera_init(&kCameraConfig);\n"),
+])
+edit("GeminiLiveProbe.cpp", [
+    ("      M5.Speaker.begin();\n      M5.Speaker.setVolume(speaker_volume_);\n      M5.Speaker.setAllChannelVolume(speaker_volume_);\n      audio_chunks_ = 0;\n",
+     "      const bool speakerStarted = M5.Speaker.begin();\n      M5.Speaker.setVolume(speaker_volume_);\n      M5.Speaker.setAllChannelVolume(speaker_volume_);\n"
+     "      Serial.printf(\"[AUDIO] speaker begin=%d running=%d enabled=%d volume=%u internal_free=%u internal_largest=%u dma_largest=%u\\n\",\n"
+     "                    speakerStarted, M5.Speaker.isRunning(), M5.Speaker.isEnabled(), M5.Speaker.getVolume(),\n"
+     "                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),\n"
+     "                    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),\n"
+     "                    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));\n"
+     "      audio_chunks_ = 0;\n"),
+])
+assert "esp_camera_set_psram_mode(true)" in (target / "src/CameraCapture.cpp").read_text()
 _glp = (target / "src/GeminiLiveProbe.cpp").read_text()
 assert _glp.count("if (!DiagnosticMode::active()) memory_->appendDialogue(") == 2 and _glp.count("memory_->appendDialogue(") == 2
 _sh = (target / "src/SmartHome.cpp").read_text()
@@ -354,4 +379,4 @@ apply_wake_threshold(expected_edit)
 for name in PATCHED_MODULES:
     assert (target / "src" / name).read_text() == expected[name], name
 assert (target / "partitions_wake16MB.csv").read_bytes() == (ROOT / "firmware/partitions_wake16MB.csv").read_bytes()
-print(f"Prepared {target}: v61 voice/memory + v71 apps + threshold-only wake tuning (no peak gate/proximity/reset) + v77 diagnostic mode")
+print(f"Prepared {target}: v61 voice/memory + v71 apps + threshold-only wake tuning (no peak gate/proximity/reset) + v77 diagnostic mode + v78 PSRAM camera DMA/speaker diagnostics")
