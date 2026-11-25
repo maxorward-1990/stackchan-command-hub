@@ -1,4 +1,5 @@
 import { TestRecorder } from "./TestRecorder";
+import { StandardDiagnosis } from "./StandardDiagnosis";
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UsbConsole } from "./UsbConsole";
@@ -10,7 +11,7 @@ import { DialogueLog } from "./DialogueLog";
 
 export function Diagnostics() {
   const [view, setView] = useState("console");
-  return <><TestRecorder /><Tabs value={view} onValueChange={setView}>
+  return <><StandardDiagnosis /><TestRecorder /><Tabs value={view} onValueChange={setView}>
     <TabsList className="mb-5 flex h-auto w-fit max-w-full flex-wrap justify-start">
       <TabsTrigger value="console">USB-logg</TabsTrigger>
       <TabsTrigger value="speech">Svarstider</TabsTrigger>

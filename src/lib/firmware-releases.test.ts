@@ -14,6 +14,15 @@ describe("flash safety", () => {
   });
   it("v76 is the official recommendation", () => expect(LATEST.id).toBe("v76"));
   it("v61 remains the independent safe restore", () => expect(RESTORE.id).toBe("v61"));
+  it("v77 is an experimental diagnostic-mode build next to the recommended v76", () => {
+    const release = RELEASES.find(r => r.id === "v77");
+    expect(release?.experimental).toBe(true);
+    expect(release?.md5).toBe("bd4fd3e56482bedae3ad9d94fe525b26");
+    expect(release?.size).toBe(3112400);
+    expect(release?.parts).toEqual(RELEASES.find(r => r.id === "v76")?.parts);
+    expect(release && flashPlan(release).images[0]?.address).toBe(0x10000);
+    expect(LATEST.id).toBe("v76");
+  });
   it("v76 replaces the failed v75 experiment without changing restore or settings layout", () => {
     const release = RELEASES.find(r => r.id === "v76");
     expect(release?.experimental).not.toBe(true);

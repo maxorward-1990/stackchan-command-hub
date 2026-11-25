@@ -52,6 +52,12 @@ export const RELEASES: Release[] = [
       { file: "/firmware/v50-wake-model.bin", md5: "1ee5a6100d24af4eb0e7b363ea5fbc51", size: 291070, address: 0xc10000 },
     ],
     notes: ["Felsökning: Starta test slår på prestandamätning och samlar tidsstämplade USB-händelser, samtal och status; Stoppa och spara laddar ner ett paket på datorn", "Inget ljud spelas in och inget laddas upp; insamling kräver USB och medgivande för lokal samtalstext", "Färsk klockavläsning för UTC, Stockholm med sommartid, Tokyo och Port Moresby; gamla sökträffar ska inte användas som aktuell tid", "Svenska meningar tillåter engelska teknikord utan att orden ensamma ska byta svarsspråk; språkigenkänning är inte garanterad", "Rensar väntande klickavslut mellan turer; samma inställningar, väckningsmodell och v60/v49-reserver", "Byggd och regressionstestad; testa språk, tid och klick/tystnad på roboten och skicka det samlade testpaketet"] },
+  { id: "v77", experimental: true, version: "custom-v77", file: "/firmware/v77-app.bin", md5: "bd4fd3e56482bedae3ad9d94fe525b26", size: 3112400, kind: "app", date: "2026-11-25",
+    parts: [
+      { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
+      { file: "/firmware/v50-wake-model.bin", md5: "1ee5a6100d24af4eb0e7b363ea5fbc51", size: 291070, address: 0xc10000 },
+    ],
+    notes: ["Experiment för Standarddiagnos i Felsökning: diagnosläge där testsamtal inte sparas i robotens samtalsminne (stängs av automatiskt efter högst 15 min)", "Status visar nu om väckordet faktiskt finns och lyssnar", "Allt annat är oförändrat från v76; byggd av GitHub från commit 63f0b07", "v76 är fortfarande rekommenderad tills v77 testats på roboten"] },
   { id: "v76", version: "custom-v76", file: "/firmware/v76-app.bin", md5: "ea9d15aad7621697a2c53e1aec2d971e", size: 3110592, kind: "app", date: "2026-11-25",
     parts: [
       { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },

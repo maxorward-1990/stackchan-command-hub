@@ -166,6 +166,10 @@ export const robot = {
   startApp: (body: ReturnType<typeof robotAppRequest>) => appCall(body),
   stopApp: () => appCall({ action: "stop" }),
   status: () => call("/api/status"),
+  sensors: () => call<Record<string, unknown>>("/api/sensors"),
+  servoStatus: () => call<Record<string, unknown>>("/api/servo/status"),
+  /** v77+: bounded diagnostic mode; transcripts are not stored while active. 404 on older firmware. */
+  diagnostic: (active: boolean, seconds = 900) => call<{ ok: boolean; active: boolean; remaining_ms: number }>("/api/diagnostic", { active, seconds }),
   performance: (enabled?: boolean) => call<{ enabled: boolean }>("/api/performance", enabled === undefined ? undefined : { enabled }),
   stereoTest: () => call<{ audio_direction?: StereoDiagnostic }>("/api/sensors?audio=1"),
   proximityTest: () => call<{ ltr553?: { ps_raw?: number; ps_ok?: boolean; ps_saturated?: boolean; config_ok?: boolean; near_threshold?: number; control_enabled?: boolean; als_avg?: number; als_valid?: boolean; lux_estimate?: number; last_error?: string } }>("/api/sensors"),
