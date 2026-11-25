@@ -35,7 +35,9 @@ export interface DiagnosisRobot {
   homeScenes(): Promise<{ ok: boolean; scenes?: unknown[] }>;
   say(text: string): Promise<unknown>;
   interrupt(): Promise<unknown>;
-  toggleVoice(): Promise<unknown>;
+  /** Explicit conversation stop/start over USB (not the touch-like toggle, which means "interrupt and listen"). */
+  stopConversation(): Promise<unknown>;
+  listen(): Promise<unknown>;
 }
 export interface DiagnosisDeps {
   robot: DiagnosisRobot;
@@ -125,15 +127,16 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
     while (deps.now() - t0 < timeoutMs) {
       check();
       const s = await statusSnap().catch(() => null);
-      if (s && !get(s, "gemini.speaking") && !get(s, "gemini.recording") && !get(s, "gemini.tool_pending")) return true;
+      if (s && !get(s, "gemini.speaking") && !get(s, "gemini.recording") && !get(s, "gemini.tool_pending") && !get(s, "gemini.continuous")) return true;
       await deps.sleep(500);
     }
     return false;
   };
-  const textTurn = async (prompt: string, interruptAfterMs?: number): Promise<SpeechRun & { sentAt: number; interruptOk?: boolean | undefined }> => {
+  const textTurn = async (prompt: string, interruptAfterMs?: number): Promise<SpeechRun & { sentAt: number; interruptOk?: boolean | undefined; toolsBeforeAudio?: number | undefined }> => {
     let run = newRun(prompt);
     const t0 = deps.now();
-    const fn = (line: string) => { run = applyLine(run, line, deps.now() - t0); };
+    let toolsBeforeAudio: number | undefined;
+    const fn = (line: string) => { run = applyLine(run, line, deps.now() - t0); if (toolsBeforeAudio === undefined && run.firstAudioMs !== undefined) toolsBeforeAudio = run.tools.length; };
     listeners.add(fn);
     let interruptOk: boolean | undefined;
     try {
@@ -150,7 +153,7 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       }
       if (!run.done) run = { ...run, error: run.error ?? "Inget färdigt svar inom 45 s", done: true };
     } finally { listeners.delete(fn); }
-    return { ...run, sentAt: t0, interruptOk };
+    return { ...run, sentAt: t0, interruptOk, toolsBeforeAudio };
   };
 
   const runStep = async (index: number, fn: (r: StepResult) => Promise<void>, enabled = true) => {
@@ -270,13 +273,15 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
 
     // 5. Gemini text turns, including tool use and an interruption.
     await runStep(5, async (r) => {
-      const firsts: number[] = [], dones: number[] = [];
+      const firsts: number[] = [], dones: number[] = [], toolsBefore: number[] = [];
       for (const turn of TEXT_TURNS) {
         const run = await textTurn(turn.prompt);
         r.metrics[`${turn.id}_första_ljud_ms`] = run.firstAudioMs ?? null;
         r.metrics[`${turn.id}_tur_klar_ms`] = run.turnDoneMs ?? null;
         r.metrics[`${turn.id}_uppspelning_klar_ms`] = run.playbackDoneMs ?? null;
         r.metrics[`${turn.id}_verktyg`] = run.tools.join(",") || null;
+        r.metrics[`${turn.id}_verktyg_före_ljud`] = run.toolsBeforeAudio ?? null;
+        if (run.toolsBeforeAudio !== undefined) toolsBefore.push(run.toolsBeforeAudio);
         if (run.firstAudioMs !== undefined) firsts.push(run.firstAudioMs);
         if (run.playbackDoneMs !== undefined) dones.push(run.playbackDoneMs);
         if (run.error) fail(r, `${turn.id}: ${run.error}`);
@@ -287,10 +292,15 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       r.metrics["avbrott_tyst_inom_4s"] = inter.interruptOk ?? null;
       if (inter.interruptOk === false) fail(r, "Roboten slutade inte prata efter avbrott.");
       if (inter.interruptOk === undefined) warn(r, "Avbrottstestet kom aldrig till ljud, så det gick inte att avbryta.");
-      await waitIdle();
+      // An interrupt is the touch path ("interrupt and listen to me"): end that conversation explicitly.
+      await robot.stopConversation().catch(() => undefined);
+      if (!(await waitIdle())) warn(r, "Roboten blev inte ledig efter avbrottet och stoppkommandot.");
       key["första_ljud_ms_snitt"] = avg(firsts); key["uppspelning_klar_ms_snitt"] = avg(dones);
+      key["verktyg_före_ljud_snitt"] = toolsBefore.length ? Math.round((toolsBefore.reduce((a, b) => a + b, 0) / toolsBefore.length) * 10) / 10 : null;
+      if ((key["första_ljud_ms_snitt"] ?? 0) > 6000) warn(r, `Långsamt första ljud (${key["första_ljud_ms_snitt"]} ms i snitt, ${key["verktyg_före_ljud_snitt"] ?? "?"} verktyg före tal).`);
       r.metrics["första_ljud_ms_snitt"] = key["första_ljud_ms_snitt"]; r.metrics["uppspelning_klar_ms_snitt"] = key["uppspelning_klar_ms_snitt"];
-      await askOwner(r, "hördes", "Hördes robotens svar tydligt, och tystnade den när den avbröts?");
+      await askOwner(r, "röst_hördes", "Hördes robotens röst ur dess högtalare under de här samtalen?");
+      await askOwner(r, "avbrott_tyst", "Tystnade roboten direkt när det långa svaret avbröts?");
     });
 
     // 6. Voice simulation through the computer speaker: wake word + spoken question.
@@ -298,9 +308,24 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       if (!deps.speak) { r.verdict = "hoppad"; r.notes.push("Webbläsaren saknar talsyntes."); return; }
       const s = await statusSnap();
       if (get(s, "wake_word_available") === false && get(s, "wake_word_listening") === false) { r.verdict = "hoppad"; r.notes.push("Väckordet lyssnar inte (avstängt eller modell saknas)."); return; }
-      let detected = 0; const latencies: number[] = []; const answers: number[] = [];
+      let detected = 0, notListening = 0; const latencies: number[] = []; const answers: number[] = [];
+      const wakeListening = async () => {
+        const t = deps.now();
+        while (deps.now() - t < 25000) {
+          check();
+          const st = await statusSnap().catch(() => null);
+          const flag = get(st, "wake_word_listening");
+          if (flag === true) return true;
+          if (flag === undefined && lines.slice(-200).some((l) => l.line.startsWith("[WAKE] listening"))) return true;
+          await deps.sleep(500);
+        }
+        return false;
+      };
       for (let i = 0; i < VOICE_TRIES; i++) {
-        await waitIdle(); await wait(2500);
+        await robot.stopConversation().catch(() => undefined);
+        await waitIdle();
+        if (!(await wakeListening())) { notListening++; r.notes.push(`Försök ${i + 1}: väckordet lyssnade inte inom 25 s, inget sades.`); continue; }
+        await wait(1500);
         const wakeWait = waitFor((l) => l.startsWith("[WAKE] detected"), 8000);
         await deps.speak("Hi Stack Chan", "en-US");
         const hit = await wakeWait;
@@ -312,11 +337,14 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
         const done = await reply;
         if (done) answers.push(done.ms); else r.notes.push(`Försök ${i + 1}: inget färdigt svar på den talade frågan.`);
       }
-      r.metrics["väckord_träffar"] = `${detected}/${VOICE_TRIES}`;
+      await robot.stopConversation().catch(() => undefined);
+      r.metrics["väckord_träffar"] = `${detected}/${VOICE_TRIES - notListening}`;
+      r.metrics["väckord_lyssnade_inte"] = notListening;
       r.metrics["väckord_ms_snitt"] = avg(latencies);
       r.metrics["röstsvar_ms_snitt"] = avg(answers);
       key["väckord_träffar"] = detected; key["röstsvar_ms_snitt"] = avg(answers);
-      if (detected === 0) fail(r, "Väckordet uppfattades aldrig. Står roboten nära datorns högtalare och är volymen uppe?");
+      if (notListening === VOICE_TRIES) fail(r, "Väckordet kom aldrig igång, så röstvägen kunde inte testas.");
+      else if (detected === 0) fail(r, "Väckordet uppfattades aldrig. Står roboten nära datorns högtalare och är volymen uppe?");
       else if (detected < VOICE_TRIES || answers.length < detected) warn(r, "Röstvägen fungerade bara delvis.");
       await waitIdle();
     }, options.voiceSim);
@@ -335,8 +363,8 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       r.metrics["sparningsfel"] = saveFails; r.metrics["långsam_status"] = slowStatus;
       let cycleFails = 0;
       for (let i = 0; i < 5; i++) {
-        await robot.toggleVoice().catch(() => { cycleFails++; }); await wait(2000);
-        await robot.toggleVoice().catch(() => { cycleFails++; }); await wait(1500);
+        await robot.listen().catch(() => { cycleFails++; }); await wait(2500);
+        await robot.stopConversation().catch(() => { cycleFails++; });
         if (!(await waitIdle(10000))) cycleFails++;
       }
       r.metrics["start_stopp_fel"] = cycleFails;
@@ -361,6 +389,7 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
     const t0 = deps.now();
     const attempt = async (label: string, fn: () => Promise<unknown>) => { try { await fn(); } catch (e) { r.verdict = "varning"; r.notes.push(`${label}: ${(e as Error).message}`.slice(0, 200)); } };
     const restoreThreshold = originalThreshold as number | null;
+    await attempt("Samtal", () => robot.stopConversation());
     if (restoreThreshold !== null) await attempt("Tröskel", () => robot.savePersonality({ wake_threshold_milli: restoreThreshold }));
     await attempt("LED", () => robot.led("auto"));
     await attempt("Ansikte", () => robot.emotion("neutral"));

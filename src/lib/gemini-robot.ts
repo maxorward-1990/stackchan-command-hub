@@ -6,7 +6,7 @@ export const getProxy = (): string => {
   try { return JSON.parse(readStored("sc.proxy") ?? "null") ?? DEFAULT_PROXY; } catch { return DEFAULT_PROXY; }
 };
 export const setProxy = (url: string) => writeStored("sc.proxy", JSON.stringify(url.trim() || DEFAULT_PROXY));
-import { serialApi, serialConnected } from "./web-serial";
+import { sendSerial, serialApi, serialConnected } from "./web-serial";
 import { bluetoothApi, bluetoothConnected } from "./web-bluetooth";
 import type { SpeechLanguages } from "./audio-diagnostics";
 import { requestSummary, wifiError, type StereoDiagnostic } from "./robot-network";
@@ -169,6 +169,9 @@ export const robot = {
   sensors: () => call<Record<string, unknown>>("/api/sensors"),
   servoStatus: () => call<Record<string, unknown>>("/api/servo/status"),
   /** v77+: bounded diagnostic mode; transcripts are not stored while active. 404 on older firmware. */
+  /** USB console commands (firmware SerialCommandPolicy): explicit conversation stop/start. */
+  stopConversation: async () => { if (!serialConnected()) throw new Error("Kräver USB."); await sendSerial("stop"); },
+  listen: async () => { if (!serialConnected()) throw new Error("Kräver USB."); await sendSerial("listen"); },
   diagnostic: (active: boolean, seconds = 900) => call<{ ok: boolean; active: boolean; remaining_ms: number }>("/api/diagnostic", { active, seconds }),
   performance: (enabled?: boolean) => call<{ enabled: boolean }>("/api/performance", enabled === undefined ? undefined : { enabled }),
   stereoTest: () => call<{ audio_direction?: StereoDiagnostic }>("/api/sensors?audio=1"),

@@ -10,6 +10,7 @@ function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; reboo
   const queue: { at: number; line: string }[] = [];
   let sub: ((l: string) => void) | null = null;
   let speakingUntil = 0;
+  let conversation = false; // like the real robot: an interrupt opens a listening conversation
   let threshold = 490;
   let diag = false;
   let wakeMisses = over.wakeMisses ?? 0;
@@ -41,7 +42,7 @@ function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; reboo
     speakingUntil = now + 2500;
   };
   const robot: DiagnosisRobot = {
-    status: async () => { calls.push("status"); return { firmware_version: "custom-v77", uptime_ms: uptime, wifi_ip: "192.168.0.188", wake_word_available: true, wake_word_listening: true, diagnostic_mode_ms: diag ? 1000 : 0, web_search: { configured: true }, smart_home: { configured: true, last_ok: true }, gemini: { speaking: over.keepTalking ? true : now < speakingUntil, recording: false, tool_pending: false } }; },
+    status: async () => { calls.push("status"); return { firmware_version: "custom-v77", uptime_ms: uptime, wifi_ip: "192.168.0.188", wake_word_available: true, wake_word_listening: !conversation && now >= speakingUntil, diagnostic_mode_ms: diag ? 1000 : 0, web_search: { configured: true }, smart_home: { configured: true, last_ok: true }, gemini: { speaking: over.keepTalking ? true : now < speakingUntil, recording: false, tool_pending: false, continuous: conversation } }; },
     personality: async () => ({ personality: { wake_word: true, wake_threshold_milli: threshold } }),
     savePersonality: async (p) => { calls.push(`save:${p.wake_threshold_milli}`); threshold = p.wake_threshold_milli; return { ok: true }; },
     sensors: async () => { if (over.sensorsThrow) throw new Error("sensor timeout"); return { imu: { accel_ok: true, temp_c: 31 }, ltr553: { ps_ok: true } }; },
@@ -62,8 +63,9 @@ function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; reboo
     searchResult: async () => ({ busy: false, last_ok: true, last_duration_ms: 900, last_http_status: 200 }),
     homeScenes: async () => ({ ok: true, scenes: [{}, {}] }),
     say: async (text) => { calls.push("say"); talk(text); return { ok: true }; },
-    interrupt: async () => { calls.push("interrupt"); speakingUntil = 0; return {}; },
-    toggleVoice: async () => { calls.push("toggle"); return {}; },
+    interrupt: async () => { calls.push("interrupt"); speakingUntil = 0; conversation = true; return {}; },
+    stopConversation: async () => { calls.push("stop"); conversation = false; return {}; },
+    listen: async () => { calls.push("listen"); conversation = true; return {}; },
   };
   const answers: string[] = [];
   let abortAfter: number | null = null;
@@ -75,7 +77,7 @@ function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; reboo
     ask: async (q) => { answers.push(q); return true; },
     speak: async (text) => {
       calls.push(`speak:${text}`);
-      if (text.startsWith("Hi Stack")) { if (wakeMisses > 0) wakeMisses--; else emit(300, "[WAKE] detected word=histackchan threshold=0.490"); }
+      if (text.startsWith("Hi Stack")) { if (conversation) calls.push("spoke-while-in-conversation"); if (wakeMisses > 0) wakeMisses--; else { emit(300, "[WAKE] detected word=histackchan threshold=0.490"); conversation = true; } }
       else { emit(3000, "[TID] uppspelning_klar_ms=3000"); speakingUntil = now + 3000; }
       advance(600);
     },
@@ -101,7 +103,10 @@ describe("runDiagnosis", () => {
     expect(r.keyMetrics["första_ljud_ms_snitt"]).toBe(800);
     expect(r.keyMetrics["väckord_träffar"]).toBe(VOICE_TRIES);
     expect(r.keyMetrics["omstarter"]).toBe(0);
-    expect(f.answers).toHaveLength(3);
+    expect(f.answers).toHaveLength(4);
+    expect(f.calls).not.toContain("spoke-while-in-conversation");
+    expect(f.calls.filter((c) => c === "listen")).toHaveLength(5);
+    expect(r.keyMetrics["verktyg_före_ljud_snitt"]).toBeCloseTo(0.7, 1);
     const gemini = r.steps.find((s) => s.id === "gemini")!;
     expect(gemini.metrics["clock_verktyg"]).toBe("get_current_time");
     expect(gemini.metrics["avbrott_tyst_inom_4s"]).toBe(true);
@@ -154,6 +159,16 @@ describe("runDiagnosis", () => {
     expect(misses.keyMetrics["väckord_träffar"]).toBe(VOICE_TRIES - 1);
     const talking = await runDiagnosis(fakeRobot({ keepTalking: true }).deps, { ...OPTS, voiceSim: false });
     expect(talking.steps.find((s) => s.id === "gemini")!.verdict).toBe("fel");
+  });
+
+  it("waits for the wake word to listen and reports it when it never does", async () => {
+    const f = fakeRobot();
+    f.deps.robot.stopConversation = async () => ({}); // stop that does nothing: robot stays in conversation
+    const r = await runDiagnosis(f.deps, { ...OPTS, servo: false });
+    const voice = r.steps.find((s) => s.id === "voice")!;
+    expect(voice.verdict).toBe("fel");
+    expect(voice.notes.join(" ")).toContain("lyssnade inte");
+    expect(f.calls).not.toContain("spoke-while-in-conversation");
   });
 
   it("marks a step as failed when the owner answers no", async () => {
