@@ -10,6 +10,7 @@ Projektet utvecklas lokalt med git; Lovable används inte längre.
 3. `npm run dev` och öppna http://localhost:8080 i Chrome eller Edge.
 
 Tester: `npm test`. Bygge: `npm run build`.
+Firmwaretester (Linux/WSL eller Claude): `bash firmware/run_tests.sh`.
 
 ## Firmwareversioner
 

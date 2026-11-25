@@ -24,6 +24,11 @@ def read_baseline(folder, destination):
     # Copy the exported v61 source; never touch the working source tree.
     shutil.copytree(BASELINE_DIR, destination, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", ".pio"))
 read_baseline("firmware", target)
+# Lock ArduinoJson: v61's "^7" would float to new releases. 7.4.3 reproduces v76 byte-identically.
+ini = target / "platformio.ini"
+ini_text = ini.read_text()
+assert ini_text.count("bblanchon/ArduinoJson @ ^7\n") == 1
+ini.write_text(ini_text.replace("bblanchon/ArduinoJson @ ^7\n", "bblanchon/ArduinoJson @ 7.4.3\n"))
 for name in ("DeskApp.cpp", "DeskApp.h", "DeskAppPolicy.h", "MenuPagerPolicy.h", "FocusApp.cpp", "FocusApp.h", "PomodoroPolicy.h"):
     shutil.copyfile(ROOT / "firmware/apps" / name, target / "src" / name)
 
