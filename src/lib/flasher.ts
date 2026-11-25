@@ -4,7 +4,7 @@ import { ESPLoader, Transport } from "esptool-js";
 import CryptoJS from "crypto-js";
 import { disconnectSerial } from "./web-serial";
 import { flashPlan, type Release } from "./firmware-releases";
-import { assetUrl } from "./asset-url";
+import { firmwareUrl } from "./asset-url";
 
 const md5 = (data: Uint8Array) => CryptoJS.MD5(CryptoJS.lib.WordArray.create(data as unknown as number[])).toString();
 
@@ -15,7 +15,7 @@ export async function flashRelease(r: Release, onLog: (m: string) => void, onPro
   const plan = flashPlan(r);
   const files: { data: Uint8Array; address: number }[] = [];
   for (const img of plan.images) {
-    const res = await fetch(assetUrl(img.file));
+    const res = await fetch(firmwareUrl(img.file));
     if (!res.ok) throw new Error(`Kunde inte hämta firmwarefilen (${res.status}).`);
     const data = new Uint8Array(await res.arrayBuffer());
     if (md5(data) !== img.md5) throw new Error("Filen är skadad (fel kontrollsumma). Flashar inte.");

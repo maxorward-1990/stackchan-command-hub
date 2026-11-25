@@ -5,7 +5,10 @@ Projektet utvecklas med git på GitHub; Lovable används inte längre.
 
 **Öppna appen:** https://maxorward-1990.github.io/stackchan-command-hub/ (Chrome eller Edge;
 USB och Bluetooth fungerar därifrån, Wi-Fi-styrning kräver bryggan nedan på en dator).
-Varje push till `main` kör alla tester och publicerar sidan (`.github/workflows/pages.yml`).
+**Testversion (preview):** https://maxorward-1990.github.io/stackchan-command-hub/preview/ – byggs från
+branchen `preview`, har en gul banner och egen lagring (rör inte anteckningar/inställningar i den vanliga).
+Push till `main` eller `preview` kör testerna och publicerar båda (`.github/workflows/pages.yml`).
+Firmware byggs av `.github/workflows/firmware.yml` till branchen `firmware-builds` (inget flashas automatiskt).
 
 ## Starta appen (Windows)
 

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { RobotConnection } from "./RobotConnection";
 import { Diagnostics } from "./Diagnostics";
 import { normalizePath } from "@/lib/route-path";
+import { IS_PREVIEW, readStored, writeStored } from "@/lib/app-storage";
 import { setGeminiRobotLogger } from "@/lib/gemini-robot";
 
 // Links carry the trailing slash (router trailingSlash: "always"); compare via normalizePath.
@@ -22,14 +23,17 @@ export function HubShell({ children }: { children: ReactNode }) {
   const [themeLoaded, setThemeLoaded] = useState(false);
   const [menu, setMenu] = useState(false);
   const [log, setLog] = useState<string[]>([]);
-  useEffect(() => { setDark(localStorage.getItem("sc.theme") !== "light"); setThemeLoaded(true); }, []);
-  useEffect(() => { if (!themeLoaded) return; document.documentElement.classList.toggle("dark", dark); localStorage.setItem("sc.theme", dark ? "dark" : "light"); }, [dark, themeLoaded]);
+  useEffect(() => { setDark(readStored("sc.theme") !== "light"); setThemeLoaded(true); }, []);
+  useEffect(() => { if (!themeLoaded) return; document.documentElement.classList.toggle("dark", dark); writeStored("sc.theme", dark ? "dark" : "light"); }, [dark, themeLoaded]);
   useEffect(() => {
     setGeminiRobotLogger((message) => setLog((lines) => [`${new Date().toLocaleTimeString("sv-SE")} ${message}`, ...lines].slice(0, 40)));
     return () => { setGeminiRobotLogger(() => {}); };
   }, []);
   useEffect(() => { setMenu(false); }, [path]);
   return <div className="min-h-screen bg-background">
+    {IS_PREVIEW && <div role="note" className="bg-amber-500 px-4 py-1.5 text-center text-xs font-semibold text-black">
+      PREVIEW – testversion med egen lagring. <button type="button" className="underline" onClick={() => window.location.assign(import.meta.env.BASE_URL.replace(/preview\/$/, ""))}>Till den vanliga versionen</button>
+    </div>}
     <header className="flex items-center justify-between gap-3 border-b px-4 py-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <Bot className="size-7 shrink-0 text-primary" />

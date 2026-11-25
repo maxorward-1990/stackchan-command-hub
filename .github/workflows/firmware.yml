@@ -1,0 +1,81 @@
+# Bygg robotens firmware på GitHub när firmwarekällan ändras (eller manuellt).
+# Kör alla firmwaretester, förbereder källan från v61 med prepare_apps.py, bygger med
+# PlatformIO och sparar binären + storlek/MD5 i branchen `firmware-builds`
+# (builds/<version>-<commit>-app.bin). Flashning sker alltid manuellt från Command Hub.
+name: Bygg firmware
+
+on:
+  push:
+    branches: [main, preview]
+    paths: ["firmware/**", "v61/**", ".github/workflows/firmware.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache PlatformIO (verktygskedja och bibliotek)
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('v61/firmware/platformio.ini', 'firmware/apps/prepare_apps.py') }}
+          restore-keys: pio-${{ runner.os }}-
+      - name: Installera PlatformIO
+        run: pip install --upgrade platformio
+      - name: Firmwaretester
+        run: bash firmware/run_tests.sh
+      - name: Förbered källan från v61
+        run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-build
+      - name: Bygg
+        run: pio run -d /tmp/stackchan-build
+      - name: Storlek, MD5 och version
+        id: info
+        run: |
+          set -euo pipefail
+          bin=/tmp/stackchan-build/.pio/build/m5stack-cores3/firmware.bin
+          version=$(grep -oE 'custom-v[0-9]+' /tmp/stackchan-build/src/FirmwareVersion.h | head -1)
+          short=$(git rev-parse --short=7 HEAD)
+          size=$(stat -c %s "$bin"); md5=$(md5sum "$bin" | cut -d' ' -f1)
+          name="${version#custom-}-${short}"
+          mkdir -p out && cp "$bin" "out/${name}-app.bin"
+          printf '{"version":"%s","commit":"%s","branch":"%s","size":%s,"md5":"%s","address":"0x10000","built_at":"%s"}\n' \
+            "$version" "$(git rev-parse HEAD)" "${GITHUB_REF_NAME}" "$size" "$md5" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "out/${name}.json"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Firmware $version (commit $short)"
+            echo ""
+            echo "| Fil | Storlek | MD5 | Adress |"
+            echo "|---|---|---|---|"
+            echo "| ${name}-app.bin | $size byte | \`$md5\` | 0x10000 |"
+            echo ""
+            echo "Sparad i branchen \`firmware-builds\` under \`builds/\`. Inte flashad – flasha från Command Hub och testa på roboten."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ steps.info.outputs.name }}
+          path: out/
+      - name: Spara i branchen firmware-builds
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --depth 1 origin firmware-builds 2>/dev/null; then
+            git worktree add -B firmware-builds /tmp/fb FETCH_HEAD
+          else
+            git worktree add --orphan -b firmware-builds /tmp/fb
+          fi
+          mkdir -p /tmp/fb/builds && cp out/* /tmp/fb/builds/
+          cd /tmp/fb && git add builds
+          git commit -m "Firmwarebygge ${{ steps.info.outputs.name }} från ${GITHUB_REF_NAME}" -m "Byggt av GitHub Actions från $(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)."
+          git push origin firmware-builds

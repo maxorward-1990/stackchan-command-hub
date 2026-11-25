@@ -3,15 +3,16 @@
 export const DEFAULT_PROXY = "http://localhost:8787";
 export const getProxy = (): string => {
   if (typeof window === "undefined") return "";
-  try { return JSON.parse(localStorage.getItem("sc.proxy") ?? "null") ?? DEFAULT_PROXY; } catch { return DEFAULT_PROXY; }
+  try { return JSON.parse(readStored("sc.proxy") ?? "null") ?? DEFAULT_PROXY; } catch { return DEFAULT_PROXY; }
 };
-export const setProxy = (url: string) => localStorage.setItem("sc.proxy", JSON.stringify(url.trim() || DEFAULT_PROXY));
+export const setProxy = (url: string) => writeStored("sc.proxy", JSON.stringify(url.trim() || DEFAULT_PROXY));
 import { serialApi, serialConnected } from "./web-serial";
 import { bluetoothApi, bluetoothConnected } from "./web-bluetooth";
 import type { SpeechLanguages } from "./audio-diagnostics";
 import { requestSummary, wifiError, type StereoDiagnostic } from "./robot-network";
 import { robotAppStatusSchema, type robotAppRequest, type RobotAppStatus } from "./robot-app";
 import { focusStatusSchema, type FocusStatus, type focusStartRequest } from "./focus-app";
+import { readStored, writeStored } from "./app-storage";
 
 const commandListeners = new Set<(line: string) => void>();
 export function onRobotCommand(fn: (line: string) => void) { commandListeners.add(fn); return () => { commandListeners.delete(fn); }; }
