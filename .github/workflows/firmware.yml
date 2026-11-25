@@ -13,6 +13,11 @@ on:
 permissions:
   contents: write
 
+# Same toolchain path as the original v66+ builds (prepare_apps.py docstring), so embedded
+# source paths match and a rebuild differs from a released image only in build time.
+env:
+  PLATFORMIO_CORE_DIR: /tmp/stackchan-pio-core
+
 concurrency:
   group: firmware-${{ github.ref }}
   cancel-in-progress: false
@@ -28,7 +33,7 @@ jobs:
       - name: Cache PlatformIO (verktygskedja och bibliotek)
         uses: actions/cache@v4
         with:
-          path: ~/.platformio
+          path: /tmp/stackchan-pio-core
           key: pio-${{ runner.os }}-${{ hashFiles('v61/firmware/platformio.ini', 'firmware/apps/prepare_apps.py') }}
           restore-keys: pio-${{ runner.os }}-
       - name: Installera PlatformIO
