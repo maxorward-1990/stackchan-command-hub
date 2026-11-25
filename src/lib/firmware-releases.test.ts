@@ -14,6 +14,14 @@ describe("flash safety", () => {
   });
   it("v76 is the official recommendation", () => expect(LATEST.id).toBe("v76"));
   it("v61 remains the independent safe restore", () => expect(RESTORE.id).toBe("v61"));
+  it("v78 is an experimental PSRAM-camera build, still not the recommendation", () => {
+    const release = RELEASES.find(r => r.id === "v78");
+    expect(release?.experimental).toBe(true);
+    expect(release?.md5).toBe("38e5d4b9b933727177a0c3a09d30eb01");
+    expect(release?.size).toBe(3112912);
+    expect(release && flashPlan(release).images[0]?.address).toBe(0x10000);
+    expect(LATEST.id).toBe("v76");
+  });
   it("v77 is an experimental diagnostic-mode build next to the recommended v76", () => {
     const release = RELEASES.find(r => r.id === "v77");
     expect(release?.experimental).toBe(true);
