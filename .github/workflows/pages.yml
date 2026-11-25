@@ -1,0 +1,50 @@
+# Vid varje push till main: kör alla tester och publicera Command Hub på GitHub Pages.
+# Publiceras bara om webbtester, firmwaretester och bygget går igenom.
+name: Testa och publicera
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # npm 10 kraschar på projektets beroenden; npm 11 fungerar.
+      - run: npx -y npm@11 ci --no-audit --no-fund
+      - name: Webbtester
+        run: npm test
+      - name: Firmwaretester
+        run: bash firmware/run_tests.sh
+      - name: Bygg för GitHub Pages
+        run: npm run build:pages
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: dist/client
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

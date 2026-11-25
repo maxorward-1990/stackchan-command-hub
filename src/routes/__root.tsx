@@ -14,6 +14,7 @@ import { HubShell } from "@/components/hub/HubShell";
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { assetUrl } from "../lib/asset-url";
 
 function NotFoundComponent() {
   return (
@@ -98,9 +99,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
-      { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/icon-192.png" },
+      { rel: "icon", href: assetUrl("/favicon.ico"), type: "image/x-icon" },
+      { rel: "manifest", href: assetUrl("/manifest.webmanifest") },
+      { rel: "apple-touch-icon", href: assetUrl("/icon-192.png") },
     ],
   }),
   shellComponent: RootShell,

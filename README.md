@@ -1,7 +1,11 @@
 # StackChan Command Hub
 
 Webbapp och egen Gemini-firmware för StackChan (M5Stack CoreS3).
-Projektet utvecklas lokalt med git; Lovable används inte längre.
+Projektet utvecklas med git på GitHub; Lovable används inte längre.
+
+**Öppna appen:** https://maxorward-1990.github.io/stackchan-command-hub/ (Chrome eller Edge;
+USB och Bluetooth fungerar därifrån, Wi-Fi-styrning kräver bryggan nedan på en dator).
+Varje push till `main` kör alla tester och publicerar sidan (`.github/workflows/pages.yml`).
 
 ## Starta appen (Windows)
 
@@ -9,7 +13,7 @@ Projektet utvecklas lokalt med git; Lovable används inte längre.
 2. Första gången: `npx npm@11 install` (npm 10 kraschar på det här projektet).
 3. `npm run dev` och öppna http://localhost:8080 i Chrome eller Edge.
 
-Tester: `npm test`. Bygge: `npm run build`.
+Tester: `npm test`. Bygge: `npm run build` (GitHub Pages: `npm run build:pages`).
 Firmwaretester (Linux/WSL eller Claude): `bash firmware/run_tests.sh`.
 
 ## Firmwareversioner
