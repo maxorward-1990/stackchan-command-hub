@@ -1,39 +1,28 @@
-# Welcome to your Lovable project
+# StackChan Command Hub
 
-This project was built with [Lovable](https://lovable.dev).
+Webbapp och egen Gemini-firmware för StackChan (M5Stack CoreS3).
+Projektet utvecklas lokalt med git; Lovable används inte längre.
 
-## Build with Lovable
+## Starta appen (Windows)
 
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
+1. Öppna mappen i Utforskaren, högerklicka och välj **Öppna i terminal**.
+2. Första gången: `npx npm@11 install` (npm 10 kraschar på det här projektet).
+3. `npm run dev` och öppna http://localhost:8080 i Chrome eller Edge.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
+Tester: `npm test`. Bygge: `npm run build`.
 
-## Development
+## Firmwareversioner
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
-```
-
-## Built with
-
-- TanStack Start
-- TypeScript
-- React
-- Tailwind CSS
+- `v61-baseline` (git-tagg): stabil återställningspunkt, källa i `v61/firmware/` (ändras aldrig).
+- v66 och senare byggs som overlays: `python3 firmware/apps/prepare_apps.py /tmp/stackchan-vNN`, sedan PlatformIO där.
+- Färdiga binärer ligger i `public/firmware/` och flashas från appens Firmware-flik.
 
 ## StackChan Command Hub
 
 ### Kör lokalt (krävs för att nå roboten)
 Webbläsare blockerar anrop från en https-sida till `http://192.168.x.x`. Kör därför appen lokalt över http:
 ```
-bun install && bun run dev   # öppna http://localhost:8080
+npm run dev   # öppna http://localhost:8080
 ```
 
 ### Robot API (firmware-kontrakt)
