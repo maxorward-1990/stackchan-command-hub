@@ -52,6 +52,12 @@ export const RELEASES: Release[] = [
       { file: "/firmware/v50-wake-model.bin", md5: "1ee5a6100d24af4eb0e7b363ea5fbc51", size: 291070, address: 0xc10000 },
     ],
     notes: ["Felsökning: Starta test slår på prestandamätning och samlar tidsstämplade USB-händelser, samtal och status; Stoppa och spara laddar ner ett paket på datorn", "Inget ljud spelas in och inget laddas upp; insamling kräver USB och medgivande för lokal samtalstext", "Färsk klockavläsning för UTC, Stockholm med sommartid, Tokyo och Port Moresby; gamla sökträffar ska inte användas som aktuell tid", "Svenska meningar tillåter engelska teknikord utan att orden ensamma ska byta svarsspråk; språkigenkänning är inte garanterad", "Rensar väntande klickavslut mellan turer; samma inställningar, väckningsmodell och v60/v49-reserver", "Byggd och regressionstestad; testa språk, tid och klick/tystnad på roboten och skicka det samlade testpaketet"] },
+  { id: "v79", experimental: true, version: "custom-v79", file: "/firmware/v79-app.bin", md5: "797b5451c53890792d71ec11852d7496", size: 3113584, kind: "app", date: "2026-11-25",
+    parts: [
+      { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
+      { file: "/firmware/v50-wake-model.bin", md5: "1ee5a6100d24af4eb0e7b363ea5fbc51", size: 291070, address: 0xc10000 },
+    ],
+    notes: ["Kameran ska fungera även när mikrofonen är av (t.ex. efter motorrörelser): kameran startar mikrofonens klocka själv och lämnar tillbaka den efteråt", "Under Standarddiagnos blockeras lampkommandon, så ett missförstått testsamtal inte kan tända lampor", "Loggar [CAMERA] clock/no frame för att visa orsaken om en bild ändå saknas", "Innehåller v77:s och v78:s ändringar; byggd av GitHub från commit 730ea5d", "v76 är fortfarande rekommenderad tills v79 testats på roboten"] },
   { id: "v78", experimental: true, version: "custom-v78", file: "/firmware/v78-app.bin", md5: "38e5d4b9b933727177a0c3a09d30eb01", size: 3112912, kind: "app", date: "2026-11-25",
     parts: [
       { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
