@@ -1,6 +1,6 @@
-"""Reproducible v61 + apps overlay (v82: search answers follow the language of the user's own words; v81: saved speech language survives boot; v80: reply language follows the latest utterance, listen reports a deferred start, no narrating of instructions; v79: camera borrows the codec MCLK when the mic is off, diagnostic mode blocks lamp control; v78: camera DMA into PSRAM so capture no longer needs a 30 KiB internal block, speaker start diagnostics; v77: bounded diagnostic mode keeps standard-diagnosis turns out of dialogue memory, real wake-word status; v76: DMA guard only before wake listening starts; v75: lamp worker cannot starve the wake microphone; v74: unlocked end-of-speech sensitivity; v73: quantized wake threshold; v72: adjustable threshold; v71: widget stop, sub-minute timers, swipe close). No withdrawn voice changes enter the build.
-Run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-v82
-Then: PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core python3 -m platformio run -d /tmp/stackchan-v82
+"""Reproducible v61 + apps overlay (v83: diagnostic mode sends no dialogue memory; v82: search answers follow the language of the user's own words; v81: saved speech language survives boot; v80: reply language follows the latest utterance, listen reports a deferred start, no narrating of instructions; v79: camera borrows the codec MCLK when the mic is off, diagnostic mode blocks lamp control; v78: camera DMA into PSRAM so capture no longer needs a 30 KiB internal block, speaker start diagnostics; v77: bounded diagnostic mode keeps standard-diagnosis turns out of dialogue memory, real wake-word status; v76: DMA guard only before wake listening starts; v75: lamp worker cannot starve the wake microphone; v74: unlocked end-of-speech sensitivity; v73: quantized wake threshold; v72: adjustable threshold; v71: widget stop, sub-minute timers, swipe close). No withdrawn voice changes enter the build.
+Run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-v83
+Then: PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core python3 -m platformio run -d /tmp/stackchan-v83
 """
 from pathlib import Path
 import shutil
@@ -41,7 +41,7 @@ def edit(name, replacements):
         text = text.replace(old, new)
     path.write_text(text)
 
-edit("FirmwareVersion.h", [('"custom-v61"', '"custom-v82"')])
+edit("FirmwareVersion.h", [('"custom-v61"', '"custom-v83"')])
 apply_wake_threshold(edit)
 # v74: honour the saved end-of-speech setting instead of always END_SENSITIVITY_LOW.
 VAD_END = [('"END_SENSITIVITY_LOW"; // v18: HIGH cut Swedish speech at micro-pauses',
@@ -424,6 +424,9 @@ edit("ConfigManager.cpp", [('  const char* languages = doc["speech_languages"] |
 # socket that only sees the model's English query, the search data and Swedish memory, never the user's audio.
 edit("GeminiLiveProbe.cpp", [('bool GeminiLiveProbe::buildSearchAnswer(const String& result) {\n  return SearchHandoffMemory::build(handoff_query_.c_str(), result.c_str(), result.length(),', '// v82: the search answer is generated on a fresh Live socket that never heard the user, so pass the user\'s own words.\nstatic String s_lastUtterance;\nstatic uint32_t s_lastUtteranceMs = 0;\nstatic void rememberUtterance(const char* text) {\n  if (!s_lastUtteranceMs || millis() - s_lastUtteranceMs > 4000) s_lastUtterance = "";\n  s_lastUtteranceMs = millis();\n  if (s_lastUtterance.length() < 300) s_lastUtterance += text;\n}\nbool GeminiLiveProbe::buildSearchAnswer(const String& result) {\n  String request = handoff_query_;\n  if (s_lastUtterance.length() && s_lastUtterance.length() <= 300)\n    request = String("user\'s own words: \\"") + s_lastUtterance + "\\"; web search query: " + handoff_query_;\n  if (request.length() > SearchHandoffPolicy::queryBytes) request = handoff_query_;\n  return SearchHandoffMemory::build(request.c_str(), result.c_str(), result.length(),'), ('    logReadable("[DU]", inputText);\n', '    logReadable("[DU]", inputText);\n    rememberUtterance(inputText);  // v82\n')])
 edit("SearchHandoffMemory.h", [("Otherwise answer in the user's language only from the returned answer/snippets", "Otherwise answer in the language of the user's own words in search_request (never the language of the search query, results or memory), only from the returned answer/snippets")])
+# v83: on v82 real English/Swedish turns followed the speaker, but the diagnosis' English "What is 3 + 3?" got Swedish
+# 3/3 times: the injected memory ended with a Swedish exchange. Diagnosis turns are not stored (v77) and now not read either.
+edit("GeminiLiveProbe.cpp", [('  if (memory_) {\n    String activeContext = memory_->buildActiveDialogueContext(', '  if (memory_ && !DiagnosticMode::active()) {  // v83: diagnosis turns must not inherit the last real conversation\n    String activeContext = memory_->buildActiveDialogueContext(')])
 _cam = (target / "src/CameraCapture.cpp").read_text()
 assert _cam.count("s_micClockBorrowed = M5.Mic.begin();") == 1 and _cam.count("M5.Mic.end(); s_micClockBorrowed = false;") == 2
 _glp = (target / "src/GeminiLiveProbe.cpp").read_text()
@@ -446,4 +449,4 @@ apply_wake_threshold(expected_edit)
 for name in PATCHED_MODULES:
     assert (target / "src" / name).read_text() == expected[name], name
 assert (target / "partitions_wake16MB.csv").read_bytes() == (ROOT / "firmware/partitions_wake16MB.csv").read_bytes()
-print(f"Prepared {target}: v61 voice/memory + v71 apps + threshold-only wake tuning (no peak gate/proximity/reset) + v77 diagnostic mode + v78 PSRAM camera DMA/speaker diagnostics + v79 camera mic clock/diagnostic lamp block + v80 reply language/deferred listen/no instruction narration + v81 speech language survives boot + v82 search answer language")
+print(f"Prepared {target}: v61 voice/memory + v71 apps + threshold-only wake tuning (no peak gate/proximity/reset) + v77 diagnostic mode + v78 PSRAM camera DMA/speaker diagnostics + v79 camera mic clock/diagnostic lamp block + v80 reply language/deferred listen/no instruction narration + v81 speech language survives boot + v82 search answer language + v83 diagnosis without memory")
