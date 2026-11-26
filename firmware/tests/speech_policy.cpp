@@ -8,6 +8,8 @@ int main() {
   const std::string dual = languageInstruction("sv-en");
   assert(dual.find("in Swedish to Swedish") != std::string::npos);
   assert(dual.find("in English to English") != std::string::npos);
+  assert(dual.find("latest utterance alone") != std::string::npos);  // v80
+  assert(dual.find("Default to Swedish") == std::string::npos);
 
   assert(std::string(languageInstruction("en")).find("English speech only") != std::string::npos);
   assert(sampleRate == 16000 && seconds == 3 && samples == 48000 && pcmBytes == 96000);

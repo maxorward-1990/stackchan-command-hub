@@ -4,6 +4,7 @@
 // speech are injected, so the whole run is tested against a fake robot (standard-diagnosis.test.ts).
 // Physical effects are limited to LEDs, face, screen text, a short gesture, the speaker and (optional)
 // computer speech; lamps are only listed, never switched. Every changed setting is restored.
+import { guessReplyLanguage } from "./reply-language";
 import { applyLine, newRun, type SpeechRun } from "./speech-timing";
 import { parsePerf, type PerfSample } from "./performance";
 
@@ -324,6 +325,7 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
       const s = await statusSnap();
       if (get(s, "wake_word_available") === false && get(s, "wake_word_listening") === false) { r.verdict = "hoppad"; r.notes.push("Väckordet lyssnar inte (avstängt eller modell saknas)."); return; }
       let detected = 0, notListening = 0; const latencies: number[] = []; const answers: number[] = [];
+      let langChecked = 0, langWrong = 0;
       // A Swedish sentence read by an English voice comes out as letters ("V A D ...") and can be
       // misheard as a command; ask in English when the computer has no Swedish voice.
       const swedish = deps.hasVoice ? await deps.hasVoice("sv") : true;
@@ -353,19 +355,33 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
         detected++; latencies.push(hit.ms);
         await wait(1200);
         const reply = waitFor((l) => l.startsWith("[TID] uppspelning_klar_ms") || l.startsWith("[TUR] klar"), 30000);
+        const linesBefore = lines.length;
         await deps.speak(question.text, question.lang);
         const done = await reply;
         if (done) answers.push(done.ms); else r.notes.push(`Försök ${i + 1}: inget färdigt svar på den talade frågan.`);
+        // v80: check the reply language too; v79 answered an English question in Swedish twice without a warning.
+        if (done) {
+          let robotLine: string | null = null;
+          const tr = deps.now();
+          while (!robotLine && deps.now() - tr < 3000) { robotLine = lines.slice(linesBefore).find((l) => l.line.startsWith("[ROBOT]"))?.line ?? null; if (!robotLine) await deps.sleep(100); }
+          const lang = robotLine ? guessReplyLanguage(robotLine.slice(7)) : null;
+          if (lang) {
+            langChecked++;
+            if (lang !== question.lang.slice(0, 2)) { langWrong++; r.notes.push(`Försök ${i + 1}: svaret kom på ${lang === "sv" ? "svenska" : "engelska"} fast frågan var på ${question.lang.startsWith("sv") ? "svenska" : "engelska"}.`); }
+          }
+        }
       }
       await robot.stopConversation().catch(() => undefined);
       r.metrics["väckord_träffar"] = `${detected}/${VOICE_TRIES - notListening}`;
       r.metrics["väckord_lyssnade_inte"] = notListening;
       r.metrics["väckord_ms_snitt"] = avg(latencies);
       r.metrics["röstsvar_ms_snitt"] = avg(answers);
+      r.metrics["svar_rätt_språk"] = `${langChecked - langWrong}/${langChecked}`;
       key["väckord_träffar"] = detected; key["röstsvar_ms_snitt"] = avg(answers);
       if (notListening === VOICE_TRIES) fail(r, "Väckordet kom aldrig igång, så röstvägen kunde inte testas.");
       else if (detected === 0) fail(r, "Väckordet uppfattades aldrig. Står roboten nära datorns högtalare och är volymen uppe?");
       else if (detected < VOICE_TRIES || answers.length < detected) warn(r, "Röstvägen fungerade bara delvis.");
+      else if (langWrong > 0) warn(r, `Svaret kom på fel språk i ${langWrong} av ${langChecked} försök.`);
       await waitIdle();
     }, options.voiceSim);
 
