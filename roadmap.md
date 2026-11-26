@@ -190,7 +190,7 @@
 - [x] Verifiera v80 med standarddiagnos: allt OK, svarsspråk 2/3 (v79: 1/3); v80 rekommenderad
 - [ ] Prova talspråk "auto" i Command Hub och jämför svarsspråk — kräver ägaren
 - [x] Release med en knapp: GitHub-workflow (workflow_dispatch) kopierar ett bygge från firmware-builds till public/firmware + firmware-releases.ts, så release inte kräver en agentsession
-- [x] v84 = grundversion (tag baseline-v84), rekommenderad
+- [x] v84 = grundversion (branch baseline-v84), rekommenderad
 - [ ] Undersök Felsökning → "Starta test" (ägaren: fungerar inte alls; behöver beskrivning/konsolfel)
 - [ ] Frys grunden: när v80 är verifierad blir den rekommenderad och overlayn i prepare_apps.py konsolideras till en vanlig källträd-baslinje
 - [ ] Appar som data: fasta firmware-byggstenar (paneler, timers, gester, LED, ansikten, sök, prompter); appar som JSON skapade i Command Hub och sparade på roboten, ingen flashning per app
