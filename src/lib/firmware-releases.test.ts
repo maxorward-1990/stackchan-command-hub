@@ -14,6 +14,14 @@ describe("flash safety", () => {
   });
   it("v76 is the official recommendation", () => expect(LATEST.id).toBe("v76"));
   it("v61 remains the independent safe restore", () => expect(RESTORE.id).toBe("v61"));
+  it("v80 is an experimental reply-language build, still not the recommendation", () => {
+    const release = RELEASES.find(r => r.id === "v80");
+    expect(release?.experimental).toBe(true);
+    expect(release?.md5).toBe("40477c96789e2a482670a6c00cc527b0");
+    expect(release?.size).toBe(3113968);
+    expect(release && flashPlan(release).images[0]?.address).toBe(0x10000);
+    expect(LATEST.id).toBe("v76");
+  });
   it("v79 is an experimental camera-clock build, still not the recommendation", () => {
     const release = RELEASES.find(r => r.id === "v79");
     expect(release?.experimental).toBe(true);

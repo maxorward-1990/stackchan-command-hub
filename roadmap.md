@@ -184,3 +184,13 @@
 - [x] Bygg v76; 35 versionstester och fem firmwaremodultester passerar. Versionskort och serverad kontrollsumma verifierade på dator/telefon; v75 indragen, v61-återställning och v71-fil oförändrade.
 - [x] Användarens v76-logg och bekräftelse: ingen omstartsloop; behåll standard 0,490, förstärkning 4 och brusfilter 2.
 - [x] Gör v76 officiellt rekommenderad; behåll v61 som separat säker återställning.
+
+## Framåt: stabil grund, billig anpassning (2026-11-26)
+- [x] v80: svarsspråk följer senaste yttrandet, uppskjuten listen är inte fel, diagnos kontrollerar svarsspråk
+- [ ] Verifiera v80 med standarddiagnos (svar_rätt_språk 3/3) och en svensk fråga — kräver ägaren
+- [ ] Release med en knapp: GitHub-workflow (workflow_dispatch) kopierar ett bygge från firmware-builds till public/firmware + firmware-releases.ts, så release inte kräver en agentsession
+- [ ] Frys grunden: när v80 är verifierad blir den rekommenderad och overlayn i prepare_apps.py konsolideras till en vanlig källträd-baslinje
+- [ ] Appar som data: fasta firmware-byggstenar (paneler, timers, gester, LED, ansikten, sök, prompter); appar som JSON skapade i Command Hub och sparade på roboten, ingen flashning per app
+- [ ] Mer beteende via prompter/färdigheter i Command Hub; firmware ändras bara för nya sorters förmågor
+- [ ] Ingen skriptmotor (Lua/Berry) på roboten tills deklarativa appar inte räcker — internminnet behövs för TLS
+- Arbetssätt: samla flera önskemål per firmwareversion; mekaniska uppgifter på billigare modell; skicka diagnossammanfattning + relevanta loggrader
