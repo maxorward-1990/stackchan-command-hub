@@ -55,7 +55,7 @@ bool ConfigManager::loadJsonConfig(const char* path) {
   config_.robotId = doc["robot_id"] | config_.robotId;
   config_.geminiModel = doc["gemini_model"] | config_.geminiModel;
   config_.geminiVoice = doc["gemini_voice"] | config_.geminiVoice;
-  const char* languages = doc["speech_languages"] | "sv-en";
+  const char* languages = doc["speech_languages"] | config_.speechLanguages.c_str();  // v81: gateway.json must not reset it
   if (SpeechPolicy::validLanguages(languages)) config_.speechLanguages = languages;
   config_.gatewayBaseUrl = doc["gateway_base_url"] | config_.gatewayBaseUrl;
   config_.wifiSsid = doc["wifi_ssid"] | config_.wifiSsid;
