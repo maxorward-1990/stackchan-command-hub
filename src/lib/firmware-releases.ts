@@ -22,12 +22,12 @@ export const WAKE_MODEL_MAX = 0x80000;
 export const LITTLEFS_ADDRESS = 0xc90000;
 
 export const RELEASES: Release[] = [
-  { id: "v84", experimental: true, version: "custom-v84", file: "/firmware/v84-app.bin", md5: "5e679b5e9a6a436f4e878ccc82e59cda", size: 3115872, kind: "app", date: "2026-11-26",
+  { id: "v84", version: "custom-v84", file: "/firmware/v84-app.bin", md5: "5e679b5e9a6a436f4e878ccc82e59cda", size: 3115872, kind: "app", date: "2026-11-26",
     parts: [
       { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
       { file: "/firmware/v50-wake-model.bin", md5: "1ee5a6100d24af4eb0e7b363ea5fbc51", size: 291070, address: 0xc10000 },
     ],
-    notes: ["Byggd av GitHub från commit 364965a", "v80 är fortfarande rekommenderad tills v84 testats på roboten"] },
+    notes: ["Byggd av GitHub från commit 364965a", "Grundversion (baseline) 2026-11-26: rätt svarsspråk i vanliga samtal och efter webbsökning, testad på roboten"] },
   { id: "v83", experimental: true, version: "custom-v83", file: "/firmware/v83-app.bin", md5: "9fda10b327e9bcce5609d9759a11e293", size: 3114528, kind: "app", date: "2026-11-26",
     parts: [
       { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
@@ -310,7 +310,7 @@ export const RELEASES: Release[] = [
 
 /** Recommendation and historical restore are deliberately independent. */
 /** The officially recommended app image; tools/release-firmware.mjs updates this line. */
-export const RECOMMENDED_ID = "v80";
+export const RECOMMENDED_ID = "v84";
 export const OFFERED = RELEASES.filter((r) => !r.withdrawn).sort((a, b) => Number(b.id === RECOMMENDED_ID) - Number(a.id === RECOMMENDED_ID));
 const latest = OFFERED.find((r) => r.id === RECOMMENDED_ID && !r.experimental);
 if (!latest) throw new Error("Ingen firmwareuppdatering är tillgänglig.");

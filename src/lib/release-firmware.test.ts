@@ -23,7 +23,8 @@ describe("release-firmware", () => {
     expect(entry).toContain("experimental: true");
     expect(entry).toContain("address: 0xc10000");
     expect(entry).toContain("Byggd av GitHub från commit abcdef1");
-    expect(out).toContain('export const RECOMMENDED_ID = "v80";');
+    expect(out).toMatch(/export const RECOMMENDED_ID = "v\d+";/);
+    expect(out).not.toContain(`RECOMMENDED_ID = "v999"`);
   });
   it("moves the recommendation with --recommend", () => {
     const { source: out } = addRelease(source, build, [], true, "2026-11-27");
