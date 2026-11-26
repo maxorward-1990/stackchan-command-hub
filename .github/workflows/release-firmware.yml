@@ -60,6 +60,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/firmware src/lib/firmware-releases.ts
+          if git diff --cached --quiet; then echo "Redan släppt – inget att committa." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
           git commit -m "Släpp firmware ${BUILD} i Firmware-fliken"
           git push origin "HEAD:${GITHUB_REF_NAME}"
           # Pushar med GITHUB_TOKEN startar inga andra workflows; starta publiceringen uttryckligen.

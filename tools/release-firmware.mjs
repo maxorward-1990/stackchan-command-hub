@@ -44,6 +44,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.exit(2);
   }
   const build = JSON.parse(readFileSync(jsonPath, "utf8"));
+  const current = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/lib/firmware-releases.ts"), "utf8");
+  if (build.md5 && current.includes(`md5: "${build.md5}"`)) {
+    console.log(`${build.version} (${build.md5}) är redan släppt i Firmware-fliken – inget att göra.`);
+    process.exit(0);
+  }
   const bin = readFileSync(binPath);
   if (createHash("md5").update(bin).digest("hex") !== build.md5 || bin.length !== build.size)
     throw new Error("Binären matchar inte bygg-JSON (MD5/storlek)");
