@@ -19,7 +19,9 @@ import { useRobotConnection } from "./RobotConnection";
 import { SPEECH_LANGUAGES, isSpeechLanguages } from "@/lib/audio-diagnostics";
 
 type Profile = { id: string; name: string; system: string; persona: string };
-const BASE_SV = "Tala uteslutande på ren, naturlig svenska. Blanda aldrig in norska eller danska ord eller uttal. Använd neutral rikssvenska (standardsvenska) med neutralt uttal, utan regional dialekt eller brytning som småländska, skånska eller norrländska.";
+// Language-neutral on purpose: the robot's speech-language setting decides the reply language. The old
+// "Tala uteslutande på … svenska" forced Swedish answers to English questions even with "auto".
+const BASE_SV = "Svara på samma språk som användaren just talade, svenska eller engelska. När du talar svenska: använd ren, naturlig rikssvenska med neutralt uttal, utan norska eller danska ord och utan regional dialekt.";
 const DEFAULT_PROFILES: Profile[] = [
   { id: "desk", name: "Skrivbordsassistent", system: BASE_SV + " Svara kort och sakligt, max 2–3 meningar.", persona: "Lugn, hjälpsam och rak. Inget smicker." },
   { id: "buddy", name: "Lekfull kompis", system: BASE_SV, persona: "Glad, nyfiken och skämtsam. Använd gester ofta och ställ gärna en motfråga." },
