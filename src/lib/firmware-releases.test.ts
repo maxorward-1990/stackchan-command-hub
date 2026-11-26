@@ -12,15 +12,15 @@ describe("flash safety", () => {
   it("never erases flash (keeps Wi-Fi, key and prompts)", () => {
     for (const r of RELEASES) expect(flashPlan(r).eraseAll).toBe(false);
   });
-  it("v76 is the official recommendation", () => expect(LATEST.id).toBe("v76"));
+  it("v80 is the official recommendation", () => expect(LATEST.id).toBe("v80"));
   it("v61 remains the independent safe restore", () => expect(RESTORE.id).toBe("v61"));
-  it("v80 is an experimental reply-language build, still not the recommendation", () => {
+  it("v80 is the recommended reply-language build", () => {
     const release = RELEASES.find(r => r.id === "v80");
-    expect(release?.experimental).toBe(true);
+    expect(release?.experimental).not.toBe(true);
     expect(release?.md5).toBe("40477c96789e2a482670a6c00cc527b0");
     expect(release?.size).toBe(3113968);
     expect(release && flashPlan(release).images[0]?.address).toBe(0x10000);
-    expect(LATEST.id).toBe("v76");
+    expect(LATEST.id).toBe("v80");
   });
   it("v79 is an experimental camera-clock build, still not the recommendation", () => {
     const release = RELEASES.find(r => r.id === "v79");
@@ -28,7 +28,7 @@ describe("flash safety", () => {
     expect(release?.md5).toBe("797b5451c53890792d71ec11852d7496");
     expect(release?.size).toBe(3113584);
     expect(release && flashPlan(release).images[0]?.address).toBe(0x10000);
-    expect(LATEST.id).toBe("v76");
+    expect(LATEST.id).not.toBe(release?.id);
   });
   it("v78 is an experimental PSRAM-camera build, still not the recommendation", () => {
     const release = RELEASES.find(r => r.id === "v78");
@@ -36,7 +36,7 @@ describe("flash safety", () => {
     expect(release?.md5).toBe("38e5d4b9b933727177a0c3a09d30eb01");
     expect(release?.size).toBe(3112912);
     expect(release && flashPlan(release).images[0]?.address).toBe(0x10000);
-    expect(LATEST.id).toBe("v76");
+    expect(LATEST.id).not.toBe(release?.id);
   });
   it("v77 is an experimental diagnostic-mode build next to the recommended v76", () => {
     const release = RELEASES.find(r => r.id === "v77");
@@ -45,7 +45,7 @@ describe("flash safety", () => {
     expect(release?.size).toBe(3112400);
     expect(release?.parts).toEqual(RELEASES.find(r => r.id === "v76")?.parts);
     expect(release && flashPlan(release).images[0]?.address).toBe(0x10000);
-    expect(LATEST.id).toBe("v76");
+    expect(LATEST.id).not.toBe(release?.id);
   });
   it("v76 replaces the failed v75 experiment without changing restore or settings layout", () => {
     const release = RELEASES.find(r => r.id === "v76");
@@ -96,7 +96,7 @@ describe("flash safety", () => {
     expect(test && flashPlan(test).images.map(i => i.address)).toEqual([0x10000, 0x8000, 0xc10000]);
     expect(test && flashPlan(test).eraseAll).toBe(false);
     expect(RESTORE.version).toBe("custom-v61");
-    expect(OFFERED.find(r => r.kind === "app")?.id).toBe("v76");
+    expect(OFFERED.find(r => r.kind === "app")?.id).toBe(LATEST.id);
   });
   it("v67 app menu test build keeps the v61 layout and never becomes the recommendation", () => {
     const test = RELEASES.find(r => r.id === "v67");

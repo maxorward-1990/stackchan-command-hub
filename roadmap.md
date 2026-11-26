@@ -187,8 +187,9 @@
 
 ## Framåt: stabil grund, billig anpassning (2026-11-26)
 - [x] v80: svarsspråk följer senaste yttrandet, uppskjuten listen är inte fel, diagnos kontrollerar svarsspråk
-- [ ] Verifiera v80 med standarddiagnos (svar_rätt_språk 3/3) och en svensk fråga — kräver ägaren
-- [ ] Release med en knapp: GitHub-workflow (workflow_dispatch) kopierar ett bygge från firmware-builds till public/firmware + firmware-releases.ts, så release inte kräver en agentsession
+- [x] Verifiera v80 med standarddiagnos: allt OK, svarsspråk 2/3 (v79: 1/3); v80 rekommenderad
+- [ ] Prova talspråk "auto" i Command Hub och jämför svarsspråk — kräver ägaren
+- [x] Release med en knapp: GitHub-workflow (workflow_dispatch) kopierar ett bygge från firmware-builds till public/firmware + firmware-releases.ts, så release inte kräver en agentsession
 - [ ] Frys grunden: när v80 är verifierad blir den rekommenderad och overlayn i prepare_apps.py konsolideras till en vanlig källträd-baslinje
 - [ ] Appar som data: fasta firmware-byggstenar (paneler, timers, gester, LED, ansikten, sök, prompter); appar som JSON skapade i Command Hub och sparade på roboten, ingen flashning per app
 - [ ] Mer beteende via prompter/färdigheter i Command Hub; firmware ändras bara för nya sorters förmågor

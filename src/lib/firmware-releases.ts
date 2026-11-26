@@ -52,12 +52,12 @@ export const RELEASES: Release[] = [
       { file: "/firmware/v50-wake-model.bin", md5: "1ee5a6100d24af4eb0e7b363ea5fbc51", size: 291070, address: 0xc10000 },
     ],
     notes: ["Felsökning: Starta test slår på prestandamätning och samlar tidsstämplade USB-händelser, samtal och status; Stoppa och spara laddar ner ett paket på datorn", "Inget ljud spelas in och inget laddas upp; insamling kräver USB och medgivande för lokal samtalstext", "Färsk klockavläsning för UTC, Stockholm med sommartid, Tokyo och Port Moresby; gamla sökträffar ska inte användas som aktuell tid", "Svenska meningar tillåter engelska teknikord utan att orden ensamma ska byta svarsspråk; språkigenkänning är inte garanterad", "Rensar väntande klickavslut mellan turer; samma inställningar, väckningsmodell och v60/v49-reserver", "Byggd och regressionstestad; testa språk, tid och klick/tystnad på roboten och skicka det samlade testpaketet"] },
-  { id: "v80", experimental: true, version: "custom-v80", file: "/firmware/v80-app.bin", md5: "40477c96789e2a482670a6c00cc527b0", size: 3113968, kind: "app", date: "2026-11-26",
+  { id: "v80", version: "custom-v80", file: "/firmware/v80-app.bin", md5: "40477c96789e2a482670a6c00cc527b0", size: 3113968, kind: "app", date: "2026-11-26",
     parts: [
       { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
       { file: "/firmware/v50-wake-model.bin", md5: "1ee5a6100d24af4eb0e7b363ea5fbc51", size: 291070, address: 0xc10000 },
     ],
-    notes: ["Svarar på samma språk som din senaste fråga, även när profil och minne är på svenska; svenska bara när språket är oklart", "Start av samtal som väntar på huvudrörelse eller uppkoppling räknas inte längre som fel (inget felansikte, ingen 'CMD listen: failed')", "Roboten återger inte sina instruktioner för dig", "Standarddiagnosen kontrollerar nu även svarets språk", "Innehåller v79:s kameraklocka; byggd av GitHub från commit cae516f", "v76 är fortfarande rekommenderad tills v80 testats på roboten"] },
+    notes: ["Svarar på samma språk som din senaste fråga, även när profil och minne är på svenska; svenska bara när språket är oklart", "Start av samtal som väntar på huvudrörelse eller uppkoppling räknas inte längre som fel (inget felansikte, ingen 'CMD listen: failed')", "Roboten återger inte sina instruktioner för dig", "Standarddiagnosen kontrollerar nu även svarets språk", "Innehåller v79:s kameraklocka; byggd av GitHub från commit cae516f", "Rekommenderad 2026-11-26: standarddiagnos utan fel, svarsspråk 2/3 (bättre än v79:s 1/3)"] },
   { id: "v79", experimental: true, version: "custom-v79", file: "/firmware/v79-app.bin", md5: "797b5451c53890792d71ec11852d7496", size: 3113584, kind: "app", date: "2026-11-25",
     parts: [
       { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
@@ -285,8 +285,10 @@ export const RELEASES: Release[] = [
 ];
 
 /** Recommendation and historical restore are deliberately independent. */
-export const OFFERED = RELEASES.filter((r) => !r.withdrawn).sort((a, b) => Number(b.id === "v76") - Number(a.id === "v76"));
-const latest = OFFERED.find((r) => r.id === "v76" && !r.experimental);
+/** The officially recommended app image; tools/release-firmware.mjs updates this line. */
+export const RECOMMENDED_ID = "v80";
+export const OFFERED = RELEASES.filter((r) => !r.withdrawn).sort((a, b) => Number(b.id === RECOMMENDED_ID) - Number(a.id === RECOMMENDED_ID));
+const latest = OFFERED.find((r) => r.id === RECOMMENDED_ID && !r.experimental);
 if (!latest) throw new Error("Ingen firmwareuppdatering är tillgänglig.");
 export const LATEST = latest;
 const restore = OFFERED.find((r) => r.id === "v61" && !r.experimental);

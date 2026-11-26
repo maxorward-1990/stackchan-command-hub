@@ -1,0 +1,67 @@
+# Knapp: lägg ett färdigt bygge från branchen firmware-builds i Command Hubs Firmware-flik.
+# Actions → "Släpp firmware" → Run workflow: välj branch (preview eller main), ange bygget
+# (t.ex. v81-abc1234, se firmware-builds/builds/), korta anteckningar och om den ska bli rekommenderad.
+# Kör testerna, committar och startar publiceringen. Flashar aldrig något.
+name: Släpp firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Bygge i firmware-builds, t.ex. v81-abc1234"
+        required: true
+      notes:
+        description: "Anteckningar för Firmware-fliken, separerade med ;"
+        required: false
+        default: ""
+      recommend:
+        description: "Gör den till rekommenderad version"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-firmware
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Hämta bygget
+        env:
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILD" =~ ^v[0-9]+-[0-9a-f]{7}$ ]] || { echo "Ogiltigt byggnamn: $BUILD"; exit 1; }
+          git fetch --depth 1 origin firmware-builds
+          git show "FETCH_HEAD:builds/${BUILD}.json" > /tmp/build.json
+          git show "FETCH_HEAD:builds/${BUILD}-app.bin" > /tmp/app.bin
+      - name: Lägg till i Firmware-fliken
+        env:
+          NOTES: ${{ inputs.notes }}
+          RECOMMEND: ${{ inputs.recommend }}
+        run: node tools/release-firmware.mjs /tmp/build.json /tmp/app.bin "$NOTES" $([ "$RECOMMEND" = "true" ] && echo --recommend)
+      - name: Tester
+        run: npx -y npm@11 ci --no-audit --no-fund && npm test
+      - name: Commit, push och publicera
+        env:
+          BUILD: ${{ inputs.build }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/firmware src/lib/firmware-releases.ts
+          git commit -m "Släpp firmware ${BUILD} i Firmware-fliken"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          # Pushar med GITHUB_TOKEN startar inga andra workflows; starta publiceringen uttryckligen.
+          gh workflow run publish.yml --ref main
+          echo "Släppt ${BUILD} på ${GITHUB_REF_NAME}; publiceringen är startad." >> "$GITHUB_STEP_SUMMARY"
