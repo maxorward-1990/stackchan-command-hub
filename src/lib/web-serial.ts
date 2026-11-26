@@ -12,7 +12,9 @@ type SerialPortLike = {
 
 export const serialSupported = () => typeof navigator !== "undefined" && "serial" in navigator;
 
-const MAX_LINES = 800;
+// Long conversations: keep more history; per-chunk transcript counters are hidden (listeners still get every line).
+const MAX_LINES = 5000;
+const NOISE = /^GeminiLive: (output|input) transcript chars=\d+$/;
 type State = { lines: string[]; connected: boolean; error: string };
 let state: State = { lines: [], connected: false, error: "" };
 const subs = new Set<() => void>();
@@ -42,7 +44,7 @@ function push(chunk: string) {
   const done = parts.filter((l) => l.trim().length > 0);
   done.forEach(onLine);
   // Camera frames arrive as huge base64 lines; keep the console readable.
-  const shown = done.map((l) => (l.length > 600 ? `${l.slice(0, 120)}… (${l.length} tecken)` : l));
+  const shown = done.filter((l) => !NOISE.test(l)).map((l) => (l.length > 600 ? `${l.slice(0, 120)}… (${l.length} tecken)` : l));
   if (shown.length) set({ lines: [...state.lines, ...shown].slice(-MAX_LINES) });
 }
 
