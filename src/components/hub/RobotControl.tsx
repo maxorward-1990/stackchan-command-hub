@@ -22,6 +22,9 @@ type Profile = { id: string; name: string; system: string; persona: string };
 // Language-neutral on purpose: the robot's speech-language setting decides the reply language. The old
 // "Tala uteslutande på … svenska" forced Swedish answers to English questions even with "auto".
 const BASE_SV = "Svara på samma språk som användaren just talade, svenska eller engelska. När du talar svenska: använd ren, naturlig rikssvenska med neutralt uttal, utan norska eller danska ord och utan regional dialekt.";
+const OLD_BASE_SV = "Tala uteslutande på ren, naturlig svenska. Blanda aldrig in norska eller danska ord eller uttal. Använd neutral rikssvenska (standardsvenska) med neutralt uttal, utan regional dialekt eller brytning som småländska, skånska eller norrländska.";
+/** Replaces the old forced-Swedish sentence in saved profiles and in the prompt read back from the robot. */
+export const migrateLanguagePrompt = (text: string) => text.split(OLD_BASE_SV).join(BASE_SV);
 const DEFAULT_PROFILES: Profile[] = [
   { id: "desk", name: "Skrivbordsassistent", system: BASE_SV + " Svara kort och sakligt, max 2–3 meningar.", persona: "Lugn, hjälpsam och rak. Inget smicker." },
   { id: "buddy", name: "Lekfull kompis", system: BASE_SV, persona: "Glad, nyfiken och skämtsam. Använd gester ofta och ställ gärna en motfråga." },
@@ -92,7 +95,7 @@ export function RobotSettings() {
     setLoading(true);
     try {
       const [r, p] = await Promise.all([robot.runtime(), robot.prompts()]);
-      setRt(r); setSys(p.system_prompt ?? ""); setPersona(p.persona_prompt ?? "");
+      setRt(r); setSys(migrateLanguagePrompt(p.system_prompt ?? "")); setPersona(p.persona_prompt ?? "");
     } finally { setLoading(false); }
   });
   const upd = (p: Partial<Runtime>) => setRt((r) => (r ? { ...r, ...p } : r));
@@ -112,7 +115,7 @@ export function RobotSettings() {
           <div className="flex flex-wrap gap-2">
             {profiles.map((p) => (
               <div key={p.id} className="flex items-center rounded-md border">
-                <Button size="sm" variant="ghost" onClick={() => { setSys(p.system); setPersona(p.persona); }}>{p.name}</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setSys(migrateLanguagePrompt(p.system)); setPersona(p.persona); }}>{p.name}</Button>
                 <Button size="icon" variant="ghost" className="size-8" aria-label={`Ta bort ${p.name}`} onClick={() => setProfiles(profiles.filter((x) => x.id !== p.id))}><Trash2 className="size-3.5" /></Button>
               </div>
             ))}
