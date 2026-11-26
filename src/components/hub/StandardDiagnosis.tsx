@@ -79,7 +79,7 @@ export function StandardDiagnosis() {
     try { return JSON.parse(readStored(LAST_KEY) ?? "null") as DiagnosisResult | null; } catch { return null; }
   };
 
-  const run = async () => {
+  const run = async (voiceOnly = false) => {
     setError(""); setResult(null); abort.current = false; setRunning(true);
     let recording: TestReport | null = null;
     try {
@@ -96,11 +96,12 @@ export function StandardDiagnosis() {
         ...(canSpeak ? { speak, hasVoice } : {}),
         progress: (index, count, title) => setStep({ index, count, title }),
         aborted: () => abort.current || !serialConnected(),
-      }, { ...options, voiceSim: options.voiceSim && canSpeak }, previous());
+      }, { ...options, voiceSim: voiceOnly || (options.voiceSim && canSpeak), voiceOnly }, previous());
       recording = await recorder.stop("diagnosis finished").catch(() => null);
       // Only key metrics are kept for the next comparison; the full package is downloaded.
       const { keyMetrics, firmware, startedAt, verdict } = res;
-      if (!res.aborted) writeStored(LAST_KEY, JSON.stringify({ keyMetrics, firmware, startedAt, verdict }));
+      // A voice-only run lacks most metrics, so it never becomes the baseline for the next full comparison.
+      if (!res.aborted && !voiceOnly) writeStored(LAST_KEY, JSON.stringify({ keyMetrics, firmware, startedAt, verdict }));
       const pkg: Package = { ...res, recording };
       setResult(pkg);
       download(pkg);
@@ -120,6 +121,7 @@ export function StandardDiagnosis() {
       </div>
       <div className="flex flex-wrap gap-2">
         <Button disabled={!connected || running} onClick={() => void run()}><Play />Kör standarddiagnos</Button>
+        <Button variant="outline" disabled={!connected || running || !canSpeak} onClick={() => void run(true)} title="Bara förberedelse, röstsimulering och återställning (ca 1 min)"><Play />Bara röstsimulering</Button>
         <Button variant="outline" disabled={!running} onClick={() => { abort.current = true; }}><Square />Avbryt</Button>
         {result && <Button variant="outline" onClick={() => download(result)}><Download />Spara diagnospaket</Button>}
       </div>

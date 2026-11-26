@@ -90,6 +90,14 @@ function fakeRobot(over: { noDiagnostic?: boolean; sensorsThrow?: boolean; reboo
 }
 
 describe("runDiagnosis", () => {
+  it("voice-only runs just preparation, voice simulation and restore", async () => {
+    const f = fakeRobot();
+    const r = await runDiagnosis(f.deps, { ...OPTS, voiceOnly: true });
+    const ran = r.steps.filter((s) => s.verdict !== "hoppad").map((s) => s.id);
+    expect(ran).toEqual(["prepare", "voice", "restore", "global"]);
+    expect(f.calls.filter((c) => c === "say")).toHaveLength(0);
+    expect(f.calls.filter((c) => c.startsWith("diag:"))).toEqual(["diag:true", "diag:false"]);
+  });
   it("runs every step on a healthy robot, measures, restores and pauses memory", async () => {
     const f = fakeRobot();
     const r = await runDiagnosis(f.deps, OPTS);

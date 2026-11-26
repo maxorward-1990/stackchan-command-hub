@@ -54,7 +54,9 @@ export interface DiagnosisDeps {
   progress(stepIndex: number, stepCount: number, title: string): void;
   aborted(): boolean;
 }
-export interface DiagnosisOptions { servo: boolean; camera: boolean; voiceSim: boolean; lampService: boolean; performance: boolean; idleSeconds: number }
+/** voiceOnly: run just preparation, voice simulation and restore (quick language/wake-word check). */
+export interface DiagnosisOptions { servo: boolean; camera: boolean; voiceSim: boolean; lampService: boolean; performance: boolean; idleSeconds: number; voiceOnly?: boolean }
+const VOICE_ONLY_STEPS = new Set(["prepare", "voice", "restore"]);
 export const DEFAULT_OPTIONS: DiagnosisOptions = { servo: true, camera: true, voiceSim: true, lampService: false, performance: true, idleSeconds: 60 };
 
 export type Verdict = "ok" | "varning" | "fel" | "hoppad";
@@ -167,6 +169,7 @@ export async function runDiagnosis(deps: DiagnosisDeps, options: DiagnosisOption
     const r: StepResult = { id: def.id, title: def.title, verdict: "ok", ms: 0, metrics: {}, notes: [] };
     const t0 = deps.now();
     if (!enabled) { r.verdict = "hoppad"; r.notes.push("Avstängd i valen."); steps.push(r); return; }
+    if (options.voiceOnly && !VOICE_ONLY_STEPS.has(def.id)) { r.verdict = "hoppad"; r.notes.push("Bara röstsimulering vald."); steps.push(r); return; }
     try { await fn(r); }
     catch (e) {
       if (e instanceof DiagnosisAborted) { r.verdict = "hoppad"; r.notes.push("Avbruten av användaren."); r.ms = deps.now() - t0; steps.push(r); throw e; }
