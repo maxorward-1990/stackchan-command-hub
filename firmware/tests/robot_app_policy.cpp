@@ -12,7 +12,7 @@ static const char* kDisco = R"({"id":"disco-1","name":"Disco","enabled":true,"co
 
 struct FakeEnv : RobotAppPlayer::Env {
   uint32_t t = 0; std::vector<std::string> calls;
-  bool speakingNow = false, motion = false, failGesture = false; int lights = 0;
+  bool speakingNow = false, motion = false, failGesture = false, idle = false; int lights = 0;
   uint32_t now() override { return t; }
   bool led(const char* m, uint8_t r, uint8_t g, uint8_t b) override { char s[64]; std::snprintf(s, sizeof s, "led %s %d %d %d", m, r, g, b); calls.push_back(s); return true; }
   bool emotion(const char* n) override { calls.push_back(std::string("emotion ") + n); return true; }
@@ -24,6 +24,7 @@ struct FakeEnv : RobotAppPlayer::Env {
   void clearScreen() override { calls.push_back("clear"); }
   bool requestText(const char* s) override { calls.push_back(std::string("say ") + s); return true; }
   bool speaking() override { return speakingNow; }
+  bool speechIdle() override { return idle; }
   bool lightsStart(const char* a, const char* tg) override { calls.push_back(std::string("lights ") + a + " " + tg); return true; }
   int lightsPoll() override { return lights; }
   bool todoAdd(const char* s) override { calls.push_back(std::string("todo ") + s); return true; }
@@ -95,5 +96,15 @@ int main() {
   FakeEnv e4; RobotAppPlayer::Player p4; p4.start(lk.as<JsonArrayConst>(), "x"); run(p4, e4, 1000);
   assert(e4.calls[0] == "look -1280 900" && e4.calls[1] == "stop" && !p4.running());
   RobotAppPlayer::Player p5; FakeEnv e5; p5.start(doc["actions"].as<JsonArrayConst>(), "Disco"); run(p5, e5, 300); p5.stop(); assert(!p5.running() && !std::strcmp(p5.error(), "Stoppad."));
+  // A turn that ends without audio is retried once, then the app stops with a clear error.
+  JsonDocument sp; deserializeJson(sp, R"([{"kind":"speak","text":"Disco!"},{"kind":"clear"}])");
+  FakeEnv e6; RobotAppPlayer::Player p6; p6.start(sp.as<JsonArrayConst>(), "x");
+  run(p6, e6, 500); assert(e6.calls.size() == 1);   // connecting: not idle yet
+  e6.idle = true; run(p6, e6, 1400); assert(e6.calls.size() == 1);
+  run(p6, e6, 300); assert(e6.calls.size() == 2 && e6.calls[1] == e6.calls[0]);  // retried with the same text
+  e6.idle = false; e6.speakingNow = true; run(p6, e6, 1000); e6.speakingNow = false; e6.idle = true; run(p6, e6, 1700);
+  assert(e6.calls.back() == "clear" && !p6.running() && !*p6.error());
+  FakeEnv e7; e7.idle = true; RobotAppPlayer::Player p7; p7.start(sp.as<JsonArrayConst>(), "x"); run(p7, e7, 5000);
+  assert(!p7.running() && std::string(p7.error()).find("utan ljud") != std::string::npos && e7.calls.size() == 2);
   std::puts("robot app policy/player: ok");
 }

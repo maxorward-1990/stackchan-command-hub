@@ -45,7 +45,8 @@ constexpr size_t kChunkBytes = kChunkBase64Max / 4 * 3 + 4;
 RobotAppPlayer::Player g_player;
 String g_lastError, g_runOrigin;
 
-struct Pending { int index = -1; String origin; uint32_t since = 0; bool stopSent = false; } g_pending;
+struct Pending { int index = -1; String origin; uint32_t since = 0, idleSince = 0; bool stopSent = false; } g_pending;
+constexpr uint32_t kSettleMs = 1500;  // let a just-ended conversation finish closing before the app talks
 Edge g_edges[kMaxApps][kMaxTriggers];
 uint32_t g_lastRun[kMaxApps] = {}; bool g_everRun[kMaxApps] = {};
 uint32_t g_firedUtt[kMaxApps] = {}; long g_firedMinute[kMaxApps] = {};
@@ -137,6 +138,7 @@ struct DeviceEnv : RobotAppPlayer::Env {
   void clearScreen() override { ScreenImage::clear(); ::emotion.forceRedraw(); }
   bool requestText(const char* text) override { return gemini.requestTextTurn(String(text)); }
   bool speaking() override { return gemini.isSpeaking() || M5.Speaker.isPlaying(); }
+  bool speechIdle() override { return !gemini.isConnecting() && !gemini.canInterrupt() && !gemini.toolPending(); }
   bool lightsStart(const char* action, const char* target) override {
     if (!SmartHome::available() || SmartHome::busy() || gemini.toolPending()) return false;
     JsonDocument a; a["action"] = action; a["target"] = target;
@@ -341,7 +343,12 @@ void loop(bool busy) {
   if (g_pending.index >= 0) {
     const uint32_t waited = millis() - g_pending.since;
     const bool voice = g_pending.origin == "röst", says = g_pending.origin == "sa";
-    if (!busy) { beginRun(g_pending.index); return; }
+    if (!busy) {
+      if (!g_pending.idleSince) g_pending.idleSince = millis() ? millis() : 1;
+      if (millis() - g_pending.idleSince >= kSettleMs) beginRun(g_pending.index);
+      return;
+    }
+    g_pending.idleSince = 0;
     if ((says || (voice && waited > 20000)) && !g_pending.stopSent) { gemini.stopConversation(); g_pending.stopSent = true; Serial.println("[APP] ending conversation to start the app"); }
     const uint32_t limit = voice || says ? 35000 : g_pending.origin == "klockslag" ? 60000 : 8000;
     if (waited > limit) { g_lastError = String(g_meta[g_pending.index].name) + ": roboten var upptagen"; Serial.printf("[APP] %s\n", g_lastError.c_str()); g_pending = Pending{}; }

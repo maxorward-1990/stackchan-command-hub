@@ -7,6 +7,9 @@ Sedan 2026-11-27 är den här mappen firmwarekällan som byggs: v84, fryst fil f
 (GitHub-workflowet Bygg firmware gör samma sak). Versionsnoteringar för v66–v84 finns i `history/`;
 avsnitten nedan är v61-källans ursprungliga noteringar.
 
+## v86 — appar som pratar direkt efter ett röstkommando
+- v85 startade appen samtidigt som samtalet stängdes; Gemini svarade då "Disco!" som text utan ljud. Appen väntar nu 1,5 s efter samtalet, och ett tal-steg som slutar utan ljud provas en gång till innan appen stoppas med felet "Gemini svarade utan ljud". Loggen visar `[TUR] klar utan ljud` när en tur saknar ljud.
+
 ## v85 — egna appar på roboten
 - Appar från Command Hubs appbyggare (format v1) skickas till roboten (`/api/robotapps`, bilder i delar) och körs där utan dator: start från menyn (Mina appar), rösten (Gemini-verktyget `start_app`, "starta appen …") eller automatiskt på klockslag, närhet, ljus, huvudtryck eller ett ord användaren säger.
 - Steg: LED, ansikte, gest/dans, titta, text, bild, säg, fråga Gemini, lampor, att-göra, timer, vänta, avsluta samtal, återställ. En app i taget; starten väntar tills roboten är ledig.

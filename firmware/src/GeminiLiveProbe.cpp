@@ -1238,7 +1238,7 @@ void GeminiLiveProbe::handleMessage(uint8_t* payload, size_t length) {
     if (discard_audio_) return;
   }
   if (LiveSessionPolicy::turnComplete(serverContent)) {
-    Serial.println("[TUR] klar");
+    Serial.println(turn_started_ms_ && !first_audio_logged_ ? "[TUR] klar utan ljud" : "[TUR] klar");  // v85: diagnose silent turns
     if (turn_started_ms_) Serial.printf("[TID] tur_klar_ms=%lu\n", static_cast<unsigned long>(millis() - turn_started_ms_));
     turn_complete_pending_ = true;
     playback_drain_started_ms_ = millis();

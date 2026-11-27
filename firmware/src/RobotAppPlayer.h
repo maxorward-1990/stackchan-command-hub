@@ -18,6 +18,7 @@ struct Env {
   virtual void clearScreen() = 0;
   virtual bool requestText(const char* text) = 0; // a Gemini text turn (speaks the answer)
   virtual bool speaking() = 0;
+  virtual bool speechIdle() = 0;                  // Gemini is not connecting, waiting or talking (the turn is over)
   virtual bool lightsStart(const char* action, const char* target) = 0;
   virtual int lightsPoll() = 0;                   // 0 still running, 1 done ok, -1 failed
   virtual bool todoAdd(const char* text) = 0;
@@ -26,7 +27,7 @@ struct Env {
   virtual void resetLook() = 0;                   // LEDs auto, screen cleared, neutral face, head centred
 };
 
-constexpr uint32_t kMotionMinMs = 200, kMotionMaxMs = 15000, kLightsMaxMs = 15000;
+constexpr uint32_t kMotionMinMs = 200, kMotionMaxMs = 15000, kLightsMaxMs = 15000, kSilentTurnMs = 1500;
 
 class Player {
  public:
@@ -53,6 +54,17 @@ class Player {
         if (env.motionBusy() && now - t0_ < kMotionMaxMs) return;
         break;
       case Phase::Speech: {
+        // A turn can end without any audio (seen on v85 right after an end_session): retry once, then fail.
+        if (!speech_.started && env.speechIdle()) {
+          if (!idleSince_) idleSince_ = now ? now : 1;
+          if (now - idleSince_ >= kSilentTurnMs && now - t0_ >= kSilentTurnMs) {
+            if (retried_) { fail("Gemini svarade utan ljud"); return; }
+            retried_ = true; idleSince_ = 0;
+            if (!env.requestText(text_.c_str())) { fail("roboten kunde inte utföra steget"); return; }
+            speech_.begin(now); t0_ = now;
+            return;
+          }
+        } else idleSince_ = 0;
         auto r = speech_.update(now, env.speaking());
         if (r == RobotAppPolicy::SpeechWait::Waiting) return;
         if (r == RobotAppPolicy::SpeechWait::NeverStarted) { fail("roboten började inte prata (är Gemini igång?)"); return; }
@@ -76,7 +88,9 @@ class Player {
   int index_ = 0;
   Phase phase_ = Phase::Next;
   bool running_ = false;
-  uint32_t t0_ = 0, waitMs_ = 0;
+  uint32_t t0_ = 0, waitMs_ = 0, idleSince_ = 0;
+  bool retried_ = false;
+  std::string text_;
   RobotAppPolicy::SpeechWait speech_;
   char name_[RobotAppPolicy::kNameMax + 1] = {};
   char error_[160] = {};
@@ -109,6 +123,7 @@ class Player {
     else if (!std::strcmp(k, "clear")) env.clearScreen();
     else if (!std::strcmp(k, "speak") || !std::strcmp(k, "ask")) {
       std::string text = !std::strcmp(k, "speak") ? std::string("Säg exakt detta högt, ingenting annat: \"") + (a["text"] | "") + "\"" : std::string(a["prompt"] | "");
+      text_ = text; retried_ = false; idleSince_ = 0;
       ok = env.requestText(text.c_str());
       if (ok) { speech_.begin(now); wait(Phase::Speech, now); return; }
     } else if (!std::strcmp(k, "lights")) { ok = env.lightsStart(a["action"] | "", a["target"] | ""); if (ok) { wait(Phase::Lights, now); return; } }
