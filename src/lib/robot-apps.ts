@@ -18,6 +18,10 @@ export const triggerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("near"), threshold: z.number().int().min(1).max(2047) }),
   z.object({ kind: z.literal("light"), when: z.enum(["dark", "bright"]), threshold: z.number().int().min(0).max(65535) }),
   z.object({ kind: z.literal("head_touch") }),
+  // v87 (robot only): motion and power events the robot already detects
+  z.object({ kind: z.literal("lifted") }), z.object({ kind: z.literal("put_down") }), z.object({ kind: z.literal("tipped") }),
+  z.object({ kind: z.literal("knock") }), z.object({ kind: z.literal("battery_low") }),
+  z.object({ kind: z.literal("power_on") }), z.object({ kind: z.literal("power_off") }),
 ]);
 export type Trigger = z.infer<typeof triggerSchema>;
 export type TriggerKind = Trigger["kind"];
@@ -31,22 +35,29 @@ export const EMOTION_CHOICES = [["neutral", "Neutral"], ["happy", "Glad"], ["ang
 const gestureNames = GESTURE_CHOICES.map(g => g[0]) as [string, ...string[]];
 const emotionNames = EMOTION_CHOICES.map(e => e[0]) as [string, ...string[]];
 
+/** v87: with_previous = start together with the step before ("samtidigt" instead of "sedan"). */
+const step = <T extends z.ZodRawShape>(shape: T) => z.object({ ...shape, with_previous: z.boolean().optional() });
 export const actionSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("led"), mode: z.enum(["solid", "pulse", "rainbow", "off", "auto"]), color: hex }),
-  z.object({ kind: z.literal("emotion"), emotion: z.enum(emotionNames) }),
-  z.object({ kind: z.literal("gesture"), gesture: z.enum(gestureNames) }),
-  z.object({ kind: z.literal("look"), pan: z.number().min(-90).max(90), tilt: z.number().min(-30).max(30) }),
-  z.object({ kind: z.literal("text"), text: text(200) }),
-  z.object({ kind: z.literal("image"), name: z.string().max(80), jpeg_base64: z.string().min(16).max(MAX_IMAGE_BASE64).regex(/^[A-Za-z0-9+/]+=*$/) }),
-  z.object({ kind: z.literal("clear") }),
-  z.object({ kind: z.literal("speak"), text: text(200) }),
-  z.object({ kind: z.literal("ask"), prompt: text(400) }),
-  z.object({ kind: z.literal("lights"), action: z.enum(["scene", "on", "off"]), target: text(40) }),
-  z.object({ kind: z.literal("todo"), text: text(120) }),
-  z.object({ kind: z.literal("timer"), minutes: z.number().int().min(1).max(90) }),
-  z.object({ kind: z.literal("wait"), seconds: z.number().min(0.2).max(60) }),
-  z.object({ kind: z.literal("stop_talk") }),
-  z.object({ kind: z.literal("reset") }),
+  step({ kind: z.literal("led"), mode: z.enum(["solid", "pulse", "rainbow", "off", "auto"]), color: hex }),
+  step({ kind: z.literal("emotion"), emotion: z.enum(emotionNames) }),
+  step({ kind: z.literal("gesture"), gesture: z.enum(gestureNames) }),
+  step({ kind: z.literal("look"), pan: z.number().min(-90).max(90), tilt: z.number().min(-30).max(30) }),
+  step({ kind: z.literal("text"), text: text(200) }),
+  step({ kind: z.literal("image"), name: z.string().max(80), jpeg_base64: z.string().min(16).max(MAX_IMAGE_BASE64).regex(/^[A-Za-z0-9+/]+=*$/) }),
+  step({ kind: z.literal("clear") }),
+  step({ kind: z.literal("speak"), text: text(200) }),
+  step({ kind: z.literal("ask"), prompt: text(400) }),
+  step({ kind: z.literal("lights"), action: z.enum(["scene", "on", "off"]), target: text(40) }),
+  step({ kind: z.literal("todo"), text: text(120) }),
+  step({ kind: z.literal("timer"), minutes: z.number().int().min(1).max(90) }),
+  step({ kind: z.literal("wait"), seconds: z.number().min(0.2).max(60) }),
+  step({ kind: z.literal("stop_talk") }),
+  step({ kind: z.literal("reset") }),
+  // v87 (robot only for photo/sound)
+  step({ kind: z.literal("photo"), show: z.boolean() }),
+  step({ kind: z.literal("describe"), prompt: text(400) }),
+  step({ kind: z.literal("listen") }),
+  step({ kind: z.literal("sound"), sound: z.enum(["beep", "double", "rising", "falling"]) }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 export type ActionKind = Action["kind"];
@@ -62,14 +73,46 @@ export const robotAppSchema = z.object({
 export type RobotApp = z.infer<typeof robotAppSchema>;
 
 export const TRIGGER_LABELS: Record<TriggerKind, string> = {
-  button: "När jag trycker på Kör", time: "Klockslag", says: "Om användaren säger …",
+  button: "Bara manuellt (meny, röst, Kör)", time: "Klockslag", says: "Om användaren säger …",
   near: "Om något är nära (närhetssensor)", light: "Om det är mörkt/ljust i rummet", head_touch: "Om någon rör robotens huvud",
+  lifted: "Om roboten lyfts upp", put_down: "Om roboten ställs ner", tipped: "Om roboten välter", knock: "Om någon knackar på roboten",
+  battery_low: "Om batteriet blir lågt", power_on: "Om laddaren ansluts", power_off: "Om laddaren kopplas ur",
 };
 export const ACTION_LABELS: Record<ActionKind, string> = {
   led: "LED-färg", emotion: "Ansiktsuttryck", gesture: "Gest / dans", look: "Titta åt", text: "Visa text", image: "Visa bild",
   clear: "Rensa skärmen", speak: "Säg en mening", ask: "Fråga Gemini", lights: "Lampor (Smart Life)", todo: "Lägg till att-göra",
   timer: "Starta timer", wait: "Vänta", stop_talk: "Avsluta samtal", reset: "Återställ roboten",
+  photo: "Ta en bild", describe: "Titta och berätta (kamera)", listen: "Starta samtal (roboten lyssnar)", sound: "Spela ljud",
 };
+export const SOUND_CHOICES = [["beep", "Pip"], ["double", "Dubbelpip"], ["rising", "Stigande"], ["falling", "Fallande"]] as const;
+/** Work only when the app runs on the robot (firmware v87+), not when tried from Command Hub. */
+export const ROBOT_ONLY_TRIGGERS: TriggerKind[] = ["lifted", "put_down", "tipped", "knock", "battery_low", "power_on", "power_off"];
+export const ROBOT_ONLY_ACTIONS: ActionKind[] = ["photo", "sound"];
+export type Role = "motion" | "speech" | "screen" | "other";
+export function roleOf(kind: ActionKind): Role {
+  if (kind === "gesture" || kind === "look") return "motion";
+  if (kind === "speak" || kind === "ask" || kind === "describe" || kind === "listen") return "speech";
+  if (kind === "text" || kind === "image" || kind === "photo" || kind === "clear") return "screen";
+  return "other";
+}
+/** Steps grouped by "samtidigt" (the first step never joins a previous one). */
+export function groupsOf(actions: Action[]): Action[][] {
+  const groups: Action[][] = [];
+  actions.forEach((a, i) => { const last = groups.at(-1); if (i > 0 && a.with_previous && last) last.push(a); else groups.push([a]); });
+  return groups;
+}
+/** Same rule as firmware RobotAppPolicy::groupsValid: one head, one voice, one screen per group. */
+export function groupProblem(actions: Action[]): string | null {
+  let index = 0;
+  for (const g of groupsOf(actions)) {
+    for (const role of ["motion", "speech", "screen"] as const) {
+      if (g.filter(a => roleOf(a.kind) === role).length > 1)
+        return `Steg ${index + 1}–${index + g.length} körs samtidigt men har ${role === "motion" ? "två rörelser" : role === "speech" ? "två tal-/samtalssteg" : "två saker på skärmen"} – högst en av varje åt gången.`;
+    }
+    index += g.length;
+  }
+  return null;
+}
 /** Triggers that need the USB connection in Command Hub (they read the robot's console lines). */
 export const USB_ONLY_TRIGGERS: TriggerKind[] = ["says"];
 export const SENSOR_TRIGGERS: TriggerKind[] = ["near", "light", "head_touch"];
@@ -81,7 +124,7 @@ export function defaultTrigger(kind: TriggerKind): Trigger {
     case "says": return { kind, phrase: "disco" };
     case "near": return { kind, threshold: 100 };
     case "light": return { kind, when: "dark", threshold: 20 };
-    case "head_touch": return { kind };
+    case "head_touch": case "lifted": case "put_down": case "tipped": case "knock": case "battery_low": case "power_on": case "power_off": return { kind };
   }
 }
 export function defaultAction(kind: ActionKind): Action {
@@ -101,6 +144,10 @@ export function defaultAction(kind: ActionKind): Action {
     case "wait": return { kind, seconds: 2 };
     case "stop_talk": return { kind };
     case "reset": return { kind };
+    case "photo": return { kind, show: true };
+    case "describe": return { kind, prompt: "Vad ser du framför dig?" };
+    case "listen": return { kind };
+    case "sound": return { kind, sound: "beep" };
   }
 }
 
@@ -113,7 +160,7 @@ export const EXAMPLE_APP: RobotApp = {
 /** Human-readable problem for the first invalid field, or null when the app can be saved/run. */
 export function appProblem(app: unknown): string | null {
   const r = robotAppSchema.safeParse(app);
-  if (r.success) return null;
+  if (r.success) return groupProblem(r.data.actions);
   const issue = r.error.issues[0];
   const path = issue?.path ?? [];
   if (path[0] === "name") return "Ge appen ett namn (högst 40 tecken).";
@@ -216,18 +263,27 @@ export interface RunResult { ok: boolean; done: number; error?: string }
 /** Runs the steps in order; stops at the first failure or when aborted. Waits are abortable. */
 export async function runActions(actions: Action[], exec: ActionExecutor, signal: AbortSignal, sleep = abortableSleep): Promise<RunResult> {
   let done = 0;
-  for (const a of actions) {
+  for (const group of groupsOf(actions)) {
     if (signal.aborted) return { ok: false, done, error: "Stoppad." };
-    try {
-      if (a.kind === "wait") await sleep(a.seconds * 1000, signal);
-      else await exec(a, signal);
-    } catch (e) {
-      return { ok: false, done, error: signal.aborted ? "Stoppad." : `Steg ${done + 1} (${ACTION_LABELS[a.kind]}): ${e instanceof Error ? e.message : String(e)}` };
+    let failed: { index: number; error: unknown } | null = null;
+    await Promise.all(group.map(async (a, i) => {
+      try {
+        if (a.kind === "wait") await sleep(a.seconds * 1000, signal);
+        else await exec(a, signal);
+      } catch (e) { if (!failed) failed = { index: i, error: e }; }
+    }));
+    if (failed) {
+      const f = failed as { index: number; error: unknown };
+      const a = group[f.index]!;
+      return { ok: false, done: done + f.index, error: signal.aborted ? "Stoppad." : `Steg ${done + f.index + 1} (${ACTION_LABELS[a.kind]}): ${f.error instanceof Error ? f.error.message : String(f.error)}` };
     }
-    done++;
+    done += group.length;
   }
   return { ok: true, done };
 }
+/** Same instruction texts as the firmware (RobotAppPlayer.h), so Hub and robot behave alike. */
+export const speakInstruction = (text: string) => `Säg exakt detta högt och ingenting annat. Anropa inga verktyg (inga rörelser, inget ansiktsuttryck): "${text}"`;
+export const describeInstruction = (prompt: string) => `Anropa verktyget look_with_camera exakt en gång (inga andra verktyg, inga rörelser) och svara sedan kort och högt på: ${prompt}`;
 export function abortableSleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) { reject(new Error("aborted")); return; }

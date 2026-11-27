@@ -1,42 +1,69 @@
-import { useState } from "react";
-import { FolderDown, Loader2, Play, RefreshCw, Square, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { robot } from "@/lib/gemini-robot";
-import { TRIGGER_LABELS, type RobotApp, type TriggerKind } from "@/lib/robot-apps";
+import { readStored, writeStored } from "@/lib/app-storage";
+import { useWebSerial } from "@/lib/web-serial";
+import type { RobotApp } from "@/lib/robot-apps";
 import { packageFiles, robotAppsStatusSchema, robotErrorText, sendPackage, toRobotPackage, type RobotAppsStatus } from "@/lib/robot-app-transfer";
 
-const short = (k: string) => (TRIGGER_LABELS[k as TriggerKind] ?? k).replace(/^Om /, "").replace(/ \(.*\)$/, "").replace("När jag trycker på Kör", "knapp/röst/meny");
-
-async function readStatus(r: unknown): Promise<RobotAppsStatus> {
-  const p = robotAppsStatusSchema.safeParse(r);
-  if (!p.success) throw new Error("Oväntat svar från roboten – kräver firmware v85.");
-  return p.data;
+const SENT_KEY = "sc.robotAppsSent.v1";
+/** Short fingerprint of what the robot would receive, to show "Ändrad – skicka igen". */
+export function fingerprint(app: RobotApp) {
+  const pkg = toRobotPackage({ ...app, enabled: true }, true);
+  const s = pkg.json + pkg.files.map(f => `${f.file}:${f.base64.length}:${f.base64.slice(-24)}`).join("|");
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
 }
+const readSent = (): Record<string, string> => { try { return JSON.parse(readStored(SENT_KEY) ?? "{}") as Record<string, string>; } catch { return {}; } };
 
-/** Robot side of the app builder: send, list, run, enable, delete and SD-card export. */
+export type RobotState = "unknown" | "not_sent" | "synced" | "changed";
+
+/** Robot side of the app builder: status (fetched automatically), send, run, enable, delete, SD export. */
 export function useRobotApps() {
   const [status, setStatus] = useState<RobotAppsStatus | null>(null);
+  const [problem, setProblem] = useState("");  // why the robot list is unavailable (not connected / old firmware)
   const [busy, setBusy] = useState<string | null>(null);
+  const [sent, setSent] = useState<Record<string, string>>({});
+  const { connected: usb } = useWebSerial();
+  useEffect(() => { setSent(readSent()); }, []);
+
+  const accept = (r: unknown) => {
+    const p = robotAppsStatusSchema.safeParse(r);
+    if (!p.success) throw new Error("Oväntat svar från roboten – kräver firmware v85 eller senare.");
+    setStatus(p.data); setProblem("");
+    return p.data;
+  };
   const work = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
     try { await fn(); } catch (e) { toast.error(robotErrorText(e instanceof Error ? e.message : String(e))); } finally { setBusy(null); }
   };
-  const post = async (body: Record<string, unknown>) => readStatus(await robot.robotAppsPost(body));
-  const refresh = () => work("refresh", async () => setStatus(await readStatus(await robot.robotApps())));
-  const send = (app: RobotApp, after: () => void) => work(`send:${app.id}`, async () => {
-    const pkg = toRobotPackage(app, true);
-    setStatus(await readStatus(await sendPackage(pkg, b => robot.robotAppsPost(b), (d, n) => setBusy(`send:${app.id}:${Math.round((d / n) * 100)}`))));
-    after();
-    toast.success(`${app.name} finns nu på roboten och är aktiv. Starta den med rösten ("starta appen ${app.name}") eller under Mina appar i robotens meny.`);
-  });
-  return { status, busy, refresh, send, post, setStatus, work };
-}
+  const refresh = useCallback(async (quiet = true) => {
+    try { accept(await robot.robotApps()); }
+    catch (e) { setStatus(null); setProblem(robotErrorText(e instanceof Error ? e.message : String(e))); if (!quiet) toast.error(robotErrorText(e instanceof Error ? e.message : String(e))); }
+  }, []);
+  useEffect(() => { void refresh(true); }, [refresh, usb]);  // on open and whenever USB connects
 
-export function RobotAppsPanel({ state, apps }: { state: ReturnType<typeof useRobotApps>; apps: RobotApp[] }) {
-  const { status, busy, refresh, post, setStatus, work } = state;
-  const exportSd = () => work("sd", async () => {
+  const post = async (body: Record<string, unknown>) => accept(await robot.robotAppsPost(body));
+  const stateOf = (app: RobotApp): RobotState => {
+    if (!status) return "unknown";
+    if (!status.apps.some(a => a.id === app.id)) return "not_sent";
+    try { return sent[app.id] === fingerprint(app) ? "synced" : "changed"; } catch { return "changed"; }
+  };
+  const robotApp = (id: string) => status?.apps.find(a => a.id === id);
+  const send = (app: RobotApp) => work(`send:${app.id}`, async () => {
+    const enabled = robotApp(app.id)?.enabled ?? true;
+    const pkg = toRobotPackage(app, enabled);
+    accept(await sendPackage(pkg, b => robot.robotAppsPost(b), (d, n) => setBusy(`send:${app.id}:${Math.round((d / n) * 100)}`)));
+    const next = { ...readSent(), [app.id]: fingerprint(app) };
+    writeStored(SENT_KEY, JSON.stringify(next)); setSent(next);
+    toast.success(`${app.name} finns på roboten${enabled ? " och är aktiv" : " (avstängd)"}. Starta den med rösten ("starta appen ${app.name}"), från robotens meny Mina appar eller med ▶ här.`, { duration: 8000 });
+  });
+  const run = (id: string) => work("run", async () => { await post({ action: "run", id }); });
+  const enable = (id: string, enabled: boolean) => work("enable", async () => { await post({ action: "enable", id, enabled }); });
+  const remove = (id: string) => work("delete", async () => { await post({ action: "delete", id }); });
+  const stop = () => work("stop", async () => { await post({ action: "stop" }); });
+  const exportSd = (apps: RobotApp[]) => work("sd", async () => {
     const picker = (window as unknown as { showDirectoryPicker?: (o: { mode: string }) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker;
     if (!picker) throw new Error("Webbläsaren kan inte skriva mappar. Använd Chrome eller Edge på datorn.");
     if (!apps.length) throw new Error("Det finns inga appar att exportera.");
@@ -53,27 +80,7 @@ export function RobotAppsPanel({ state, apps }: { state: ReturnType<typeof useRo
       }
       written++;
     }
-    toast.success(`${written} appar sparade i mappen stackchan-apps${skipped.length ? ` (hoppade över: ${skipped.join(", ")})` : ""}. Sätt i kortet när roboten redan är igång, öppna menyn → Mina appar → SD-kort, och ta sedan ut kortet.`, { duration: 12000 });
+    toast.success(`${written} appar sparade i mappen stackchan-apps${skipped.length ? ` (hoppade över: ${skipped.join(", ")})` : ""}. Sätt i kortet i roboten och välj Mina appar → SD-kort i robotens meny.`, { duration: 12000 });
   });
-  const sending = busy?.startsWith("send:") ? busy.split(":")[2] : null;
-  return <div className="space-y-3 rounded-md border p-4">
-    <div className="flex flex-wrap items-center gap-2">
-      <h4 className="mr-auto font-medium">På roboten <span className="text-xs font-normal text-muted-foreground">(firmware v85+, fungerar utan dator)</span></h4>
-      {sending && <span className="text-xs text-muted-foreground">Skickar… {sending}%</span>}
-      <Button size="sm" variant="outline" disabled={busy !== null} onClick={refresh}>{busy === "refresh" ? <Loader2 className="animate-spin" /> : <RefreshCw />}Hämta</Button>
-      <Button size="sm" variant="outline" disabled={busy !== null} title="Spara alla appar i en mapp på ett SD-kort" onClick={exportSd}><FolderDown />SD-kort</Button>
-    </div>
-    {!status && <p className="text-sm text-muted-foreground">Tryck Hämta för att se apparna på roboten. Skicka en app med knappen ↑ vid appen ovan.</p>}
-    {status && <>
-      <p className="text-xs text-muted-foreground">{status.apps.length}/{status.max_apps} appar · {Math.round(status.bytes_used / 1024)} av {Math.round(status.bytes_max / 1024)} kB
-        {status.running ? ` · kör ${status.running.name} (steg ${status.running.step})` : status.pending ? ` · startar ${status.pending}` : ""}{status.last_error ? ` · senaste fel: ${status.last_error}` : ""}</p>
-      {status.running && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => work("stop", async () => setStatus(await post({ action: "stop" })))}><Square />Stoppa appen på roboten</Button>}
-      <div className="divide-y">{status.apps.map(a => <div key={a.id} className="flex items-center gap-3 py-2">
-        <div className="min-w-0 flex-1"><p className="break-words text-sm font-medium">{a.name}</p><p className="text-xs text-muted-foreground">{a.triggers.map(short).join(" · ")} · {a.steps} steg</p></div>
-        <Button size="icon" variant="outline" title="Kör på roboten" aria-label={`Kör ${a.name} på roboten`} disabled={busy !== null} onClick={() => work("run", async () => setStatus(await post({ action: "run", id: a.id })))}><Play /></Button>
-        <Switch aria-label={`${a.name} aktiv på roboten`} title="Aktiv: lyssnar på sina villkor på roboten" checked={a.enabled} disabled={busy !== null} onCheckedChange={enabled => work("enable", async () => setStatus(await post({ action: "enable", id: a.id, enabled })))} />
-        <Button size="icon" variant="ghost" title="Ta bort från roboten" aria-label={`Ta bort ${a.name} från roboten`} disabled={busy !== null} onClick={() => { if (window.confirm(`Ta bort ${a.name} från roboten?`)) void work("delete", async () => setStatus(await post({ action: "delete", id: a.id }))); }}><Trash2 /></Button>
-      </div>)}</div>
-    </>}
-  </div>;
+  return { status, problem, busy, refresh, send, run, enable, remove, stop, exportSd, stateOf, robotApp };
 }

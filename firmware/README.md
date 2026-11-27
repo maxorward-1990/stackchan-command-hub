@@ -7,6 +7,13 @@ Sedan 2026-11-27 är den här mappen firmwarekällan som byggs: v84, fryst fil f
 (GitHub-workflowet Bygg firmware gör samma sak). Versionsnoteringar för v66–v84 finns i `history/`;
 avsnitten nedan är v61-källans ursprungliga noteringar.
 
+## v87 — samtidiga steg, kamera, ljud och fler villkor
+- Steg kan köras **samtidigt** med steget före (en rörelse, ett tal och en skärmsak per grupp); en dans i samma grupp som tal startar när roboten börjar prata. Tal-steg ber Gemini att inte anropa verktyg (v86: Gemini dansade själv).
+- Nya steg: Ta en bild (sparas, visas; senaste 20 på roboten och alla på SD-kortet), Titta och berätta (kamera via Gemini), Starta samtal, Spela ljud (pip, dubbelpip, stigande, fallande).
+- Nya villkor: lyfts, ställs ner, välter, knackning, lågt batteri, laddare in/ur.
+- Huvudtryck startar aldrig samtal när en aktiv app har huvudtryck som villkor (v86 började lyssna vid flera tryck).
+- Lagring: inställningar ligger alltid i internminnet; ett SD-kort är extra plats och kan sitta i hela tiden. `/api/photos` listar, hämtar och tar bort bilder.
+
 ## v86 — appar som pratar direkt efter ett röstkommando
 - v85 startade appen samtidigt som samtalet stängdes; Gemini svarade då "Disco!" som text utan ljud. Appen väntar nu 1,5 s efter samtalet, och ett tal-steg som slutar utan ljud provas en gång till innan appen stoppas med felet "Gemini svarade utan ljud". Loggen visar `[TUR] klar utan ljud` när en tur saknar ljud.
 - En app kan starta medan Gemini-anslutningen vilar efter en tur (mikrofon av); i v85 väntade starten från Command Hub tills den avbröts.

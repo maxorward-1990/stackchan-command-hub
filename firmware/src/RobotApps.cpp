@@ -20,10 +20,16 @@
 #include "GeminiLiveProbe.h"
 #include "EmotionController.h"
 #include "ServoGestureController.h"
+#include "CameraCapture.h"
+#include "SensorMonitor.h"
+#include "WakeWord.h"
+#include <algorithm>
+#include <cmath>
 
 extern GeminiLiveProbe gemini;
 extern EmotionController emotion;
 extern ServoGestureController servoGestures;
+extern CameraCapture camera;
 bool robotAppsReadLtr553(uint32_t& ps, uint32_t& als);  // WebConfigServer.cpp (same LTR-553 reads as /api/sensors)
 
 namespace {
@@ -34,7 +40,7 @@ constexpr const char* kSdDir = "/stackchan-apps";
 constexpr uint32_t kSensorPollMs = 500, kClockPollMs = 5000;
 
 fs::FS* g_fs = nullptr;
-bool g_sdBoot = false;
+bool g_sdMounted = false;  // v87: SD is extra space (photos, app import); settings stay in LittleFS
 LiveSetupAllocator g_alloc;           // all JSON and file buffers in PSRAM, never TLS's internal heap
 JsonDocument* g_run = nullptr;        // the playing app (owns the steps the player reads)
 AppMeta* g_meta = nullptr;            // kMaxApps entries in PSRAM
@@ -119,6 +125,88 @@ void reindex() {
 }
 int indexOf(const char* id) { for (int i = 0; i < g_count; ++i) if (!std::strcmp(g_meta[i].id, id)) return i; return -1; }
 
+// ---- v87 photos: newest 20 in /photos (≤800 KiB) on the robot, plus a copy on an SD card when one is mounted ----
+constexpr const char* kPhotoDir = "/photos";
+constexpr const char* kSdPhotoDir = "/stackchan-photos";
+constexpr int kMaxPhotos = 20;
+constexpr size_t kMaxPhotoBytes = 800 * 1024;
+uint32_t g_photoSeq = 0;
+String* g_photoNames = nullptr;  // PSRAM scratch for photo listings (kMaxPhotos + 8)
+size_t* g_photoSizes = nullptr;
+bool validPhotoName(const char* n) {
+  const size_t len = n ? std::strlen(n) : 0;
+  if (len < 5 || len > 40 || std::strcmp(n + len - 4, ".jpg")) return false;
+  for (size_t i = 0; i + 4 < len; ++i) { char c = n[i]; if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_')) return false; }
+  return true;
+}
+/** Photo names sorted oldest first (names start with a zero-padded sequence number). */
+int listPhotos(String* names, size_t* sizes, int cap, size_t& total) {
+  total = 0; int n = 0;
+  if (!names || !sizes) return 0;
+  File dir = g_fs->open(kPhotoDir);
+  if (!dir || !dir.isDirectory()) return 0;
+  for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+    const String name = baseName(f.name());
+    if (!f.isDirectory() && validPhotoName(name.c_str()) && n < cap) { names[n] = name; sizes[n] = f.size(); total += f.size(); ++n; }
+    f.close();
+  }
+  dir.close();
+  for (int i = 1; i < n; ++i) for (int j = i; j > 0 && names[j] < names[j - 1]; --j) { std::swap(names[j], names[j - 1]); std::swap(sizes[j], sizes[j - 1]); }
+  return n;
+}
+String timeStamp() {
+  const std::time_t t = std::time(nullptr);
+  std::tm utc{}; int minutes = 0;
+  if (!ClockPolicy::valid(t)) return String();
+  gmtime_r(&t, &utc);
+  if (!ClockPolicy::offset("Europe/Stockholm", utc, minutes)) return String();
+  const std::time_t lt = t + minutes * 60; std::tm l{}; gmtime_r(&lt, &l);
+  char b[24]; std::snprintf(b, sizeof b, "%04d%02d%02d-%02d%02d%02d", l.tm_year + 1900, l.tm_mon + 1, l.tm_mday, l.tm_hour, l.tm_min, l.tm_sec);
+  return String(b);
+}
+bool savePhoto(const uint8_t* bytes, size_t len) {
+  if (!bytes || len < 4 || len > kMaxImageBytes) return false;
+  g_fs->mkdir(kPhotoDir);
+  char name[48]; const String ts = timeStamp();
+  std::snprintf(name, sizeof name, "%06u%s%s.jpg", static_cast<unsigned>(++g_photoSeq), ts.length() ? "_" : "", ts.c_str());
+  File f = g_fs->open(path(kPhotoDir, name), "w");
+  if (!f) return false;
+  const bool ok = f.write(bytes, len) == len; f.close();
+  if (!ok) { g_fs->remove(path(kPhotoDir, name)); return false; }
+  String* names = g_photoNames; size_t* sizes = g_photoSizes; size_t total = 0;
+  int n = listPhotos(names, sizes, kMaxPhotos + 8, total);
+  for (int i = 0; i < n && (n - i > kMaxPhotos || total > kMaxPhotoBytes); ++i) { g_fs->remove(path(kPhotoDir, names[i].c_str())); total -= sizes[i]; }
+  if (g_sdMounted) {  // the card keeps every photo
+    SD.mkdir(kSdPhotoDir);
+    File s = SD.open(path(kSdPhotoDir, name), "w");
+    if (s) { s.write(bytes, len); s.close(); }
+  }
+  Serial.printf("[APP] photo %s %u bytes%s\n", name, static_cast<unsigned>(len), g_sdMounted ? " (+SD)" : "");
+  return true;
+}
+
+// ---- v87 sounds: short synthesized tones (the robot has no speech of its own) ----
+int16_t* g_pcm = nullptr;
+constexpr uint32_t kRate = 16000;
+constexpr size_t kPcmMax = kRate;  // 1 s
+uint32_t synth(const char* name) {
+  if (!g_pcm) g_pcm = static_cast<int16_t*>(heap_caps_malloc(kPcmMax * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!g_pcm) return 0;
+  struct Tone { int hz; int ms; };
+  static const Tone beep[] = {{880, 180}}, dbl[] = {{880, 140}, {0, 90}, {880, 140}}, up[] = {{660, 120}, {880, 120}, {1100, 170}}, down[] = {{1100, 120}, {880, 120}, {660, 170}};
+  const Tone* seq = beep; int count = 1;
+  if (!std::strcmp(name, "double")) { seq = dbl; count = 3; } else if (!std::strcmp(name, "rising")) { seq = up; count = 3; } else if (!std::strcmp(name, "falling")) { seq = down; count = 3; }
+  size_t n = 0;
+  for (int i = 0; i < count; ++i) {
+    const size_t len = kRate * seq[i].ms / 1000;
+    for (size_t s = 0; s < len && n < kPcmMax; ++s, ++n) {
+      const float fade = std::min(1.0f, std::min(s, len - s) / 160.0f);  // 10 ms ramps, no clicks
+      g_pcm[n] = seq[i].hz ? static_cast<int16_t>(9000.0f * fade * std::sin(6.2831853f * seq[i].hz * s / kRate)) : 0;
+    }
+  }
+  return static_cast<uint32_t>(n * 1000 / kRate);
+}
+
 // ---- Hardware behind the pure player ----
 struct DeviceEnv : RobotAppPlayer::Env {
   uint32_t now() override { return millis(); }
@@ -161,6 +249,27 @@ struct DeviceEnv : RobotAppPlayer::Env {
   }
   void stopTalk() override { gemini.stopConversation(); }
   void resetLook() override { RobotApps::resetLook(); }
+  bool takePhoto(bool show) override {
+    uint8_t* jpg = nullptr; size_t len = 0;
+    if (!camera.captureJpegBytes(&jpg, &len) || !jpg || !len) { if (jpg) free(jpg); Serial.printf("[APP] photo failed: %s\n", camera.lastError().c_str()); return false; }
+    const bool saved = savePhoto(jpg, len);
+    const bool shown = !show || ScreenImage::showJpeg(jpg, len);
+    free(jpg);
+    return saved && shown;
+  }
+  bool startConversation() override { return gemini.requestConversationStart(); }
+  bool conversationActive() override { return gemini.isConnecting() || gemini.isRecording() || gemini.continuousConversation() || gemini.canInterrupt(); }
+  uint32_t playSound(const char* name) override {
+    if (gemini.isSpeaking() || M5.Speaker.isPlaying()) return 0;
+    const uint32_t ms = synth(name);
+    if (!ms) return 0;
+    WakeWord::stop();  // the mic and speaker are half-duplex
+    if (M5.Mic.isEnabled()) M5.Mic.end();
+    if (!M5.Speaker.isEnabled()) M5.Speaker.begin();
+    const size_t samples = static_cast<size_t>(ms) * kRate / 1000;
+    if (!M5.Speaker.playRaw(g_pcm, samples, kRate, false, 1, 0)) return 0;
+    return ms + 150;
+  }
 } g_env;
 
 void beginRun(int index) {
@@ -183,6 +292,15 @@ void queue(int index, const char* origin, bool automatic) {
   Serial.printf("[APP] queued \"%s\" (%s)\n", g_meta[index].name, origin);
 }
 
+/** Queues the first enabled app with a trigger of this kind. Returns true when such an app exists. */
+bool fireKind(Trig kind, const char* origin) {
+  for (int a = 0; a < g_count; ++a) {
+    if (!g_meta[a].enabled) continue;
+    for (int i = 0; i < g_meta[a].triggerCount; ++i) if (g_meta[a].t[i].kind == kind) { queue(a, origin, true); return true; }
+  }
+  return false;
+}
+
 void pollTriggers(bool busy) {
   const uint32_t now = millis();
   if (busy) for (auto& row : g_edges) for (auto& e : row) e = Edge{};
@@ -203,6 +321,18 @@ void pollTriggers(bool busy) {
             if (timeMatches(g_meta[a].t[i], local.tm_hour, local.tm_min, local.tm_wday)) { g_firedMinute[a] = key; queue(a, "klockslag", true); break; }
         }
       }
+    }
+  }
+  // v87 battery: power connected/disconnected and low battery, from the PMIC state SensorMonitor already reads.
+  static uint32_t lastBattery = 0; static int8_t plugged = -1, low = -1;
+  if (now - lastBattery >= kClockPollMs) {
+    lastBattery = now;
+    const char* st = SensorMonitor::batteryState();
+    if (std::strcmp(st, "unknown")) {
+      const int8_t p = !std::strcmp(st, "charging") || !std::strcmp(st, "usb"), l = !std::strcmp(st, "low") || !std::strcmp(st, "critical");
+      if (plugged >= 0 && p != plugged) fireKind(p ? Trig::PowerOn : Trig::PowerOff, p ? "laddare in" : "laddare ur");
+      if (low >= 0 && l && !low) fireKind(Trig::BatteryLow, "lågt batteri");
+      plugged = p; low = l;
     }
   }
   if (busy) return;
@@ -319,7 +449,7 @@ bool copyFile(fs::FS& from, const String& src, const String& dst, size_t maxByte
 
 namespace RobotApps {
 void begin(fs::FS& storage, bool sdIsStorage) {
-  g_fs = &storage; g_sdBoot = sdIsStorage;
+  g_fs = &storage; g_sdMounted = sdIsStorage;
   g_meta = static_cast<AppMeta*>(heap_caps_malloc(sizeof(AppMeta) * kMaxApps, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   g_chunk = static_cast<uint8_t*>(heap_caps_malloc(kChunkBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   void* runMem = heap_caps_malloc(sizeof(JsonDocument), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -328,6 +458,12 @@ void begin(fs::FS& storage, bool sdIsStorage) {
   g_run = new (runMem) JsonDocument(&g_alloc);
   g_fs->mkdir(kDir);
   reindex();
+  void* nm = heap_caps_malloc(sizeof(String) * (kMaxPhotos + 8), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  g_photoSizes = static_cast<size_t*>(heap_caps_malloc(sizeof(size_t) * (kMaxPhotos + 8), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (nm) { g_photoNames = static_cast<String*>(nm); for (int i = 0; i < kMaxPhotos + 8; ++i) new (&g_photoNames[i]) String(); }
+  String* names = g_photoNames; size_t* sizes = g_photoSizes; size_t total = 0;
+  const int n = listPhotos(names, sizes, kMaxPhotos + 8, total);
+  if (n) g_photoSeq = static_cast<uint32_t>(std::strtoul(names[n - 1].c_str(), nullptr, 10));
 }
 
 void loop(bool busy) {
@@ -399,19 +535,54 @@ void onUserWords(const char* fragment) {
 }
 bool onHeadTouch() {
   Serial.println("[APP] head touch");
-  if (!g_meta || g_player.running() || g_pending.index >= 0) return false;
-  for (int a = 0; a < g_count; ++a) {
-    if (!g_meta[a].enabled) continue;
-    for (int i = 0; i < g_meta[a].triggerCount; ++i) if (g_meta[a].t[i].kind == Trig::HeadTouch) { queue(a, "huvudet", true); return true; }
+  if (!g_meta) return false;
+  // v87: while an app wants head touch it owns every touch, also during its run, start or cooldown (v86 started a conversation).
+  return fireKind(Trig::HeadTouch, "huvudet");
+}
+void onMotion(const char* motion) {
+  if (!g_meta || !motion) return;
+  if (!std::strcmp(motion, "tap")) fireKind(Trig::Knock, "knackning");
+  else if (!std::strcmp(motion, "lifted")) fireKind(Trig::Lifted, "lyft");
+  else if (!std::strcmp(motion, "tipped")) fireKind(Trig::Tipped, "vält");
+  else if (!std::strcmp(motion, "upright")) fireKind(Trig::PutDown, "nedställd");
+}
+
+int photos(JsonVariantConst in, JsonDocument& out) {
+  if (!g_fs) return fail(out, 503, "storage_unavailable");
+  const char* action = in["action"] | "";
+  String* names = g_photoNames; size_t* sizes = g_photoSizes; size_t total = 0;
+  const int n = listPhotos(names, sizes, kMaxPhotos + 8, total);
+  if (!std::strcmp(action, "get")) {
+    const char* name = in["name"] | "";
+    if (!validPhotoName(name)) return fail(out, 400, "invalid_name");
+    size_t len; uint8_t* buf = readAll(*g_fs, path(kPhotoDir, name), kMaxImageBytes, len);
+    if (!buf) return fail(out, 404, "unknown_photo");
+    size_t b64len = 0; mbedtls_base64_encode(nullptr, 0, &b64len, buf, len);
+    char* b64 = static_cast<char*>(heap_caps_malloc(b64len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!b64 || mbedtls_base64_encode(reinterpret_cast<unsigned char*>(b64), b64len + 1, &b64len, buf, len)) { heap_caps_free(buf); if (b64) heap_caps_free(b64); return fail(out, 507, "no_memory"); }
+    b64[b64len] = 0;
+    out["ok"] = true; out["name"] = name; out["jpeg_bytes"] = len; out["jpeg_base64"] = static_cast<const char*>(b64);  // copied into the document
+    heap_caps_free(buf); heap_caps_free(b64);
+    return 200;
   }
-  return false;
+  if (!std::strcmp(action, "delete")) {
+    const char* name = in["name"] | "";
+    if (!validPhotoName(name) || !g_fs->remove(path(kPhotoDir, name))) return fail(out, 404, "unknown_photo");
+  } else if (!std::strcmp(action, "clear")) {
+    for (int i = 0; i < n; ++i) g_fs->remove(path(kPhotoDir, names[i].c_str()));
+  } else if (*action) return fail(out, 400, "unknown_action");
+  const int m = listPhotos(names, sizes, kMaxPhotos + 8, total);
+  out["ok"] = true; out["max_photos"] = kMaxPhotos; out["bytes_used"] = total; out["bytes_max"] = kMaxPhotoBytes; out["sd_copy"] = g_sdMounted;
+  auto list = out["photos"].to<JsonArray>();
+  for (int i = m - 1; i >= 0; --i) { auto p = list.add<JsonObject>(); p["name"] = names[i]; p["bytes"] = sizes[i]; }  // newest first
+  return 200;
 }
 
 String importSd() {
   if (!g_meta) return "Appar stöds inte";
   if (g_player.running()) return "Stoppa appen först";
   bool mounted = false;
-  if (!g_sdBoot) {
+  if (!g_sdMounted) {
     if (!SD.begin(GPIO_NUM_4, SPI, 25000000)) return "Inget SD-kort hittades";
     mounted = true;
   }
@@ -449,7 +620,7 @@ void status(JsonDocument& out) {
   out["ok"] = true; out["supported"] = g_meta != nullptr; out["version"] = 1;
   out["max_apps"] = kMaxApps; out["max_images"] = kMaxImages; out["max_json_bytes"] = kMaxJsonBytes;
   out["max_image_bytes"] = kMaxImageBytes; out["chunk_base64_max"] = kChunkBase64Max;
-  out["bytes_used"] = g_bytes; out["bytes_max"] = kMaxTotalBytes; out["sd_storage"] = g_sdBoot;
+  out["bytes_used"] = g_bytes; out["bytes_max"] = kMaxTotalBytes; out["sd_storage"] = g_sdMounted;
   if (g_player.running()) { out["running"]["name"] = g_player.name(); out["running"]["step"] = g_player.step() + 1; }
   if (g_pending.index >= 0) out["pending"] = g_meta[g_pending.index].name;
   out["last_error"] = g_lastError;
@@ -460,8 +631,7 @@ void status(JsonDocument& out) {
     a["id"] = m.id; a["name"] = m.name; a["enabled"] = m.enabled; a["cooldown_s"] = m.cooldown; a["steps"] = m.steps; a["images"] = m.images;
     auto t = a["triggers"].to<JsonArray>();
     for (int k = 0; k < m.triggerCount; ++k) {
-      static const char* const kinds[] = {"button", "time", "says", "near", "light", "head_touch"};
-      t.add(kinds[static_cast<int>(m.t[k].kind)]);
+      t.add(kTrigNames[static_cast<int>(m.t[k].kind)]);
     }
   }
 }

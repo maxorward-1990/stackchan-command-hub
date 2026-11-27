@@ -287,10 +287,11 @@ void setup() {
   // Example SD mount path is preserved for compatibility investigation.
   bool sd_ok = SD.begin(GPIO_NUM_4, SPI, 25000000);
   Serial.printf("Firmware: %s\n", kFirmwareVersion);
-  Serial.printf("SD status: %s\n", sd_ok ? "ok" : "missing");
-  bool storage_ok = sd_ok;
-  if (sd_ok) storage.select(SD);
-  else {
+  Serial.printf("SD status: %s\n", sd_ok ? "ok (extra space: photos, app import)" : "missing");
+  // v87: settings, memory and apps always live in internal LittleFS; an SD card is only extra space.
+  // (Before v87 a card at boot replaced all storage, so Wi-Fi and keys seemed lost.)
+  bool storage_ok = false, sd_storage = false;
+  {
     storage_ok = LittleFS.begin(false);
     if (!storage_ok) {
       // Format only an entirely erased partition, never a damaged existing filesystem.
@@ -305,12 +306,13 @@ void setup() {
     }
     if (storage_ok) storage.select(LittleFS);
     Serial.printf("Internal flash storage: %s\n", storage_ok ? "ok" : "failed (not erased)");
+    if (!storage_ok && sd_ok) { storage.select(SD); storage_ok = sd_storage = true; Serial.println("Storage: internal flash unusable, falling back to SD"); }
   }
   if (storage_ok) {
     MemoryStore::Policy policy;
     policy.keepRawSessions = 3;
     policy.keepRawDays = 3;
-    policy.maxEventFileBytes = sd_ok ? 256 * 1024 : 32 * 1024;
+    policy.maxEventFileBytes = sd_storage ? 256 * 1024 : 32 * 1024;
     policy.maxRetrievedChars = 3000;
     TodoStore::attach(storage);
     DeskApp::attachStore(
@@ -668,6 +670,7 @@ void loop() {
         g_last_human_activity_ms = millis();
         emotion.setEmotion(SensorPolicy::recoveryEmotion(gemini.isRecording(), gemini.isSpeaking(), convActive)); emotion.forceRedraw();
       }
+      if (motion != Motion::None && !robotBusy()) RobotApps::onMotion(SensorPolicy::motionName(motion));  // v87 app triggers
     }
   }
   // Live camera (surveillance) mode: a viewer on :81/stream pauses voice.

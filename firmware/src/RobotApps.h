@@ -7,7 +7,7 @@
 #include <FS.h>
 
 namespace RobotApps {
-void begin(fs::FS& storage, bool sdIsStorage);
+void begin(fs::FS& storage, bool sdMounted);  // v87: settings stay in LittleFS; a mounted SD card is extra space
 /** Main loop. busy = conversation/menu/camera/diagnostics/internet worker active (blocks automatic starts). */
 void loop(bool busy);
 /** /api/robotapps: GET (empty in) = status; POST actions upload|install|delete|enable|run|stop|reset|import_sd. */
@@ -24,7 +24,9 @@ String importSd();    // copies /stackchan-apps from an SD card into the robot; 
 bool running();
 // Trigger inputs
 void onUserWords(const char* fragment);  // "[DU]" transcript fragments during a conversation
-bool onHeadTouch();                      // body touch press while idle; true = an app took it (no conversation)
+bool onHeadTouch();                      // body touch press while idle; true = an app owns head touch (no conversation)
+void onMotion(const char* motion);       // SensorPolicy motion name: tap, lifted, tipped, upright
+int photos(JsonVariantConst in, JsonDocument& out);  // /api/photos: list (empty), get, delete, clear
 // Gemini tool start_app
 bool toolDeclared();
 String toolDescription();

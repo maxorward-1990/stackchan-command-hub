@@ -363,6 +363,16 @@ void WebConfigServer::registerRoutes() {
     if (body.length() > 6000 || deserializeJson(in, body)) { out["ok"] = false; out["error"] = "invalid_robotapps_request"; sendJson(400, out); return; }
     sendJson(RobotApps::handle(in.as<JsonVariantConst>(), out), out);
   });
+  on("/api/photos", HTTP_GET, [this]() {
+    if (!requireAuth()) return;
+    JsonDocument in, out; sendJson(RobotApps::photos(in.as<JsonVariantConst>(), out), out);
+  });
+  on("/api/photos", HTTP_POST, [this]() {
+    if (!requireAuth()) return;
+    JsonDocument in, out;
+    if (readBody().length() > 256 || deserializeJson(in, readBody())) { out["ok"] = false; out["error"] = "invalid_photos_request"; sendJson(400, out); return; }
+    sendJson(RobotApps::photos(in.as<JsonVariantConst>(), out), out);
+  });
   on("/api/apps/focus", HTTP_GET, [this]() {
     if (!requireAuth()) return;
     FocusApp::update(gemini_.isReady() || gemini_.isConnecting() || gemini_.continuousConversation() || gemini_.isRecording() || gemini_.canInterrupt() || gemini_.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy());

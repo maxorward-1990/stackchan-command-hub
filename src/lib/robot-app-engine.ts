@@ -9,7 +9,7 @@ import { focusStartRequest } from "./focus-app";
 import { fitJpeg } from "./jpeg-fit";
 import {
   SENSOR_TRIGGERS, USB_IMAGE_BASE64, UtteranceJoiner, mayStart, readRobotApps, readSensorSnapshot, runActions, saysMatch, sensorEdge,
-  timeMatch, waitForSpeech, type Action, type RobotApp, type SensorSnapshot,
+  timeMatch, waitForSpeech, speakInstruction, describeInstruction, ROBOT_ONLY_ACTIONS, ACTION_LABELS, type Action, type RobotApp, type SensorSnapshot,
 } from "./robot-apps";
 
 export const ROBOT_APPS_KEY = "sc.robotApps.v1";
@@ -73,7 +73,10 @@ export async function executeAction(a: Action, signal: AbortSignal = new AbortCo
       return;
     }
     case "clear": await robot.clearScreen(); return;
-    case "speak": await robot.speak(a.text); await waitForSpeech(geminiSpeaking, signal); return;
+    case "speak": await robot.say(speakInstruction(a.text)); await waitForSpeech(geminiSpeaking, signal); return;
+    case "describe": await robot.say(describeInstruction(a.prompt)); await waitForSpeech(geminiSpeaking, signal); return;
+    case "listen": await robot.listen(); return;
+    case "photo": case "sound": throw new Error(`"${ACTION_LABELS[a.kind]}" fungerar bara när appen körs på roboten (v87) – skicka appen och kör den där.`);
     case "ask": await robot.say(a.prompt); await waitForSpeech(geminiSpeaking, signal); return;
     case "lights": await homeAction(a.action, a.target); return;
     case "todo": { const r = await robot.todos({ action: "add", text: a.text }); if (!r.ok) throw new Error(r.error || "Att-göra kunde inte sparas."); return; }

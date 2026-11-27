@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   EXAMPLE_APP, UtteranceJoiner, appProblem, defaultAction, defaultTrigger, exportRobotApps, importRobotApps, mayStart,
-  readRobotApps, readSensorSnapshot, runActions, waitForSpeech, saysMatch, sensorEdge, timeMatch, type Action, type ActionKind, type TriggerKind,
+  readRobotApps, readSensorSnapshot, runActions, waitForSpeech, groupProblem, groupsOf, saysMatch, sensorEdge, timeMatch, type Action, type ActionKind, type TriggerKind,
 } from "./robot-apps";
 
 describe("robot app format", () => {
   it("every default trigger/action except an empty image is valid", () => {
-    const triggers: TriggerKind[] = ["button", "time", "says", "near", "light", "head_touch"];
-    const actions: ActionKind[] = ["led", "emotion", "gesture", "look", "text", "clear", "speak", "ask", "todo", "timer", "wait", "stop_talk", "reset"];
+    const triggers: TriggerKind[] = ["button", "time", "says", "near", "light", "head_touch", "lifted", "put_down", "tipped", "knock", "battery_low", "power_on", "power_off"];
+    const actions: ActionKind[] = ["led", "emotion", "gesture", "look", "text", "clear", "speak", "ask", "todo", "timer", "wait", "stop_talk", "reset", "photo", "describe", "listen", "sound"];
     for (const t of triggers) for (const a of actions) expect(appProblem({ ...EXAMPLE_APP, triggers: [defaultTrigger(t)], actions: [defaultAction(a)] })).toBeNull();
     expect(appProblem({ ...EXAMPLE_APP, actions: [defaultAction("image")] })).toMatch(/välj en bild/);
     expect(appProblem({ ...EXAMPLE_APP, actions: [defaultAction("lights")] })).toMatch(/Steg 1/);
@@ -113,5 +113,36 @@ describe("speech wait", () => {
   });
   it("never waits forever on a long answer", async () => {
     expect((await run([true])).t).toBe(20000);
+  });
+});
+
+describe("v87 groups (samtidigt)", () => {
+  const dance: Action[] = [{ kind: "emotion", emotion: "neutral" }, { kind: "led", mode: "rainbow", color: "#000000", with_previous: true },
+    { kind: "speak", text: "Hej" }, { kind: "gesture", gesture: "little_dance", with_previous: true }, { kind: "wait", seconds: 2 }, { kind: "reset" }];
+  it("groups steps marked with_previous and never joins the first step", () => {
+    expect(groupsOf(dance).map(g => g.length)).toEqual([2, 2, 1, 1]);
+    expect(groupsOf([{ kind: "clear", with_previous: true }]).length).toBe(1);
+  });
+  it("allows one motion, one voice and one screen item per group (same rule as the firmware)", () => {
+    expect(groupProblem(dance)).toBeNull();
+    expect(groupProblem([{ kind: "gesture", gesture: "nod_yes" }, { kind: "look", pan: 0, tilt: 0, with_previous: true }])).toMatch(/två rörelser/);
+    expect(groupProblem([{ kind: "speak", text: "a" }, { kind: "listen", with_previous: true }])).toMatch(/tal/);
+    expect(groupProblem([{ kind: "text", text: "a" }, { kind: "photo", show: true, with_previous: true }])).toMatch(/skärmen/);
+    expect(appProblem({ ...EXAMPLE_APP, actions: [{ kind: "text", text: "a" }, { kind: "clear", with_previous: true }] })).toMatch(/skärmen/);
+  });
+  it("starts a group together and waits for all of it before the next group", async () => {
+    const order: string[] = [];
+    let release: () => void = () => {};
+    const slow = new Promise<void>(r => { release = r; });
+    const p = runActions(dance.slice(2, 4).concat([{ kind: "clear" }]), async a => {
+      order.push(`start ${a.kind}`);
+      if (a.kind === "speak") await slow;
+      order.push(`end ${a.kind}`);
+    }, new AbortController().signal, async () => {});
+    await new Promise(r => setTimeout(r, 0));
+    expect(order).toEqual(["start speak", "start gesture", "end gesture"]);  // both started, clear waits
+    release();
+    expect(await p).toEqual({ ok: true, done: 3 });
+    expect(order.at(-1)).toBe("end clear");
   });
 });

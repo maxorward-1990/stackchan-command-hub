@@ -31,6 +31,11 @@ struct FakeEnv : RobotAppPlayer::Env {
   bool timerStart(int m) override { calls.push_back("timer " + std::to_string(m)); return true; }
   void stopTalk() override { calls.push_back("stop"); }
   void resetLook() override { calls.push_back("reset"); }
+  bool convo = false; int convoStarts = 0;
+  bool takePhoto(bool show) override { calls.push_back(std::string("photo ") + (show ? "show" : "keep")); return true; }
+  bool startConversation() override { calls.push_back("listen"); ++convoStarts; return true; }
+  bool conversationActive() override { return convo; }
+  uint32_t playSound(const char* n) override { calls.push_back(std::string("sound ") + n); return 600; }
 };
 static void run(RobotAppPlayer::Player& p, FakeEnv& e, uint32_t ms, uint32_t step = 100) { for (uint32_t i = 0; i < ms; i += step) { p.tick(e); e.t += step; } }
 
@@ -84,7 +89,7 @@ int main() {
   run(p, env, 700); assert(env.calls.back() == "gesture little_dance");
   run(p, env, 2000); assert(env.calls.back() == "gesture little_dance");  // dance still moving
   env.motion = false; run(p, env, 1900); assert(env.calls.back() == "gesture little_dance");  // the 2 s wait
-  run(p, env, 400); assert(env.calls[env.calls.size() - 2] == "image disco-1_4.jpg" && env.calls.back() == "lights scene Mys");
+  run(p, env, 800); assert(env.calls[env.calls.size() - 2] == "image disco-1_4.jpg" && env.calls.back() == "lights scene Mys");
   env.lights = 1; run(p, env, 500); assert(env.calls.back() == "reset" && !p.running() && !*p.error());
 
   // Failures stop the run with the step number; never-starting speech times out.
@@ -102,9 +107,37 @@ int main() {
   run(p6, e6, 500); assert(e6.calls.size() == 1);   // connecting: not idle yet
   e6.idle = true; run(p6, e6, 1400); assert(e6.calls.size() == 1);
   run(p6, e6, 300); assert(e6.calls.size() == 2 && e6.calls[1] == e6.calls[0]);  // retried with the same text
-  e6.idle = false; e6.speakingNow = true; run(p6, e6, 1000); e6.speakingNow = false; e6.idle = true; run(p6, e6, 1700);
+  e6.idle = false; e6.speakingNow = true; run(p6, e6, 1000); e6.speakingNow = false; e6.idle = true; run(p6, e6, 2000);
   assert(e6.calls.back() == "clear" && !p6.running() && !*p6.error());
   FakeEnv e7; e7.idle = true; RobotAppPlayer::Player p7; p7.start(sp.as<JsonArrayConst>(), "x"); run(p7, e7, 5000);
   assert(!p7.running() && std::string(p7.error()).find("utan ljud") != std::string::npos && e7.calls.size() == 2);
+  // v87 groups: "with_previous" starts together; motion waits for the robot to start talking.
+  JsonDocument g; deserializeJson(g, R"({"id":"g","name":"Hej","enabled":true,"cooldown_s":0,"triggers":[{"kind":"lifted"},{"kind":"power_on"}],
+    "actions":[{"kind":"emotion","emotion":"neutral"},{"kind":"led","mode":"rainbow","color":"#000000","with_previous":true},
+               {"kind":"speak","text":"Hej"},{"kind":"gesture","gesture":"little_dance","with_previous":true},
+               {"kind":"sound","sound":"double"},{"kind":"photo","show":true,"with_previous":true},{"kind":"listen"},{"kind":"describe","prompt":"Vad ser du?"}]})");
+  assert(validate(g.as<JsonVariantConst>()) == nullptr);
+  AppMeta gm; assert(readMeta(g.as<JsonVariantConst>(), gm) && gm.t[0].kind == Trig::Lifted && gm.t[1].kind == Trig::PowerOn);
+  FakeEnv e8; RobotAppPlayer::Player p8; p8.start(g["actions"].as<JsonArrayConst>(), "Hej");
+  run(p8, e8, 100); assert(e8.calls.size() == 2 && e8.calls[0] == "emotion neutral" && e8.calls[1].rfind("led rainbow", 0) == 0);  // one group, same tick
+  run(p8, e8, 200); assert(e8.calls.size() == 3 && e8.calls[2].find("Anropa inga verktyg") != std::string::npos);  // speech, dance deferred
+  run(p8, e8, 1000); assert(e8.calls.size() == 3);                       // connecting: no dance yet
+  e8.speakingNow = true; run(p8, e8, 200); assert(e8.calls.back() == "gesture little_dance");  // dance starts with the words
+  run(p8, e8, 2000); e8.speakingNow = false; e8.motion = false; run(p8, e8, 1700);
+  assert(e8.calls[4] == "sound double" && e8.calls[5] == "photo show");    // next group: both at once
+  run(p8, e8, 700); assert(e8.calls.back() == "listen");
+  run(p8, e8, 3000); assert(p8.running() && e8.calls.back() == "listen");    // waits for the conversation to start
+  e8.convo = true; run(p8, e8, 1000); e8.convo = false; run(p8, e8, 300);
+  assert(e8.calls.back().find("look_with_camera") != std::string::npos);
+  FakeEnv e9; e9.idle = false; RobotAppPlayer::Player p9; JsonDocument lst; deserializeJson(lst, R"([{"kind":"listen"}])");
+  p9.start(lst.as<JsonArrayConst>(), "x"); run(p9, e9, 11000); assert(!p9.running() && std::string(p9.error()).find("samtalet startade inte") != std::string::npos);
+  // Group rules: one head, one voice, one screen per group.
+  auto conflict = [](const char* actions) { JsonDocument d; deserializeJson(d, kDisco); JsonDocument a; deserializeJson(a, actions); d["actions"] = a.as<JsonVariantConst>(); const char* e = validate(d.as<JsonVariantConst>()); return e && !std::strcmp(e, "group_conflict"); };
+  assert(conflict(R"([{"kind":"gesture","gesture":"nod_yes"},{"kind":"look","pan":0,"tilt":0,"with_previous":true}])"));
+  assert(conflict(R"([{"kind":"speak","text":"a"},{"kind":"listen","with_previous":true}])"));
+  assert(conflict(R"([{"kind":"text","text":"a"},{"kind":"photo","with_previous":true}])"));
+  assert(!conflict(R"([{"kind":"gesture","gesture":"nod_yes"},{"kind":"look","pan":0,"tilt":0}])"));
+  { JsonDocument d; deserializeJson(d, kDisco); d["actions"][0]["with_previous"] = "ja"; assert(validate(d.as<JsonVariantConst>())); }
+  { JsonDocument d; deserializeJson(d, kDisco); d["actions"][0]["kind"] = "sound"; d["actions"][0]["sound"] = "siren"; assert(validate(d.as<JsonVariantConst>())); }
   std::puts("robot app policy/player: ok");
 }

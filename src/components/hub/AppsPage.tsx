@@ -47,6 +47,7 @@ export function AppsPage() {
   };
   return <div className="space-y-7">
     <AppBuilder />
+    <details className="rounded-md border p-4"><summary className="cursor-pointer font-medium">Inbyggda appar: Klocka &amp; Väder och Fokustimer <span className="text-xs font-normal text-muted-foreground">(finns i firmware, egna inställningar)</span></summary><div className="mt-5 space-y-7">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-5">
       <div><p className="font-medium">Klocka & Väder och Fokustimer</p><p className="mt-1 text-sm text-muted-foreground">Inbyggda appar i robotens firmware · inställningar sparas här och på roboten</p></div>
       <div className="flex flex-wrap gap-2">
@@ -120,5 +121,6 @@ export function AppsPage() {
     </section>
     {error && <p role="alert" className="break-words text-sm text-destructive">{error}</p>}
     <FocusAppCard />
+    </div></details>
   </div>;
 }

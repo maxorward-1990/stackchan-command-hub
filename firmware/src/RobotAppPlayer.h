@@ -1,6 +1,8 @@
 #pragma once
-// v85: plays one robot app's steps in order on the main loop. Pure (hardware behind Env) so the whole
-// sequence, waits and failures are host-tested. Each tick does at most one step action and never blocks.
+// Plays one robot app on the main loop. Pure (hardware behind Env) so sequences, groups, waits and
+// failures are host-tested. v87: steps marked "with_previous" form a group that starts together; the
+// group ends when all its waits are done. In a group with speech, the motion starts when the robot
+// actually starts talking (connecting takes 1-2 s), so a dance accompanies the words.
 #include "RobotAppPolicy.h"
 #include <string>
 
@@ -25,20 +27,33 @@ struct Env {
   virtual bool timerStart(int minutes) = 0;
   virtual void stopTalk() = 0;
   virtual void resetLook() = 0;                   // LEDs auto, screen cleared, neutral face, head centred
+  virtual bool takePhoto(bool show) = 0;          // capture, store, optionally show
+  virtual bool startConversation() = 0;           // same path as a display tap
+  virtual bool conversationActive() = 0;
+  virtual uint32_t playSound(const char* name) = 0;  // duration in ms, 0 = could not play
 };
 
 constexpr uint32_t kMotionMinMs = 200, kMotionMaxMs = 15000, kLightsMaxMs = 15000, kSilentTurnMs = 1500;
+constexpr uint32_t kTalkStartMs = 10000, kTalkMaxMs = 300000;
+
+// Instructions for speech steps. Tools are named so the model does not add its own dance (seen on v86).
+inline std::string speakText(const char* text) {
+  return std::string("Säg exakt detta högt och ingenting annat. Anropa inga verktyg (inga rörelser, inget ansiktsuttryck): \"") + text + "\"";
+}
+inline std::string describeText(const char* prompt) {
+  return std::string("Anropa verktyget look_with_camera exakt en gång (inga andra verktyg, inga rörelser) och svara sedan kort och högt på: ") + prompt;
+}
 
 class Player {
  public:
   /** steps must stay valid until the run ends (the caller owns the parsed app document). */
   void start(JsonArrayConst steps, const char* name) {
-    steps_ = steps; index_ = 0; phase_ = Phase::Next; running_ = true; error_[0] = 0;
+    steps_ = steps; next_ = 0; groupStart_ = 0; running_ = true; error_[0] = 0; groupOpen_ = false;
     std::snprintf(name_, sizeof name_, "%s", name ? name : "");
   }
   void stop(const char* why = "Stoppad.") { if (running_) { running_ = false; std::snprintf(error_, sizeof error_, "%s", why); } }
   bool running() const { return running_; }
-  int step() const { return index_; }
+  int step() const { return groupStart_; }
   const char* name() const { return name_; }
   /** Empty after a successful run. */
   const char* error() const { return error_; }
@@ -46,96 +61,141 @@ class Player {
   void tick(Env& env) {
     if (!running_) return;
     const uint32_t now = env.now();
-    switch (phase_) {
-      case Phase::Next: break;
-      case Phase::Until: if (now - t0_ < waitMs_) return; break;
-      case Phase::Motion:
-        if (now - t0_ < kMotionMinMs) return;
-        if (env.motionBusy() && now - t0_ < kMotionMaxMs) return;
-        break;
-      case Phase::Speech: {
-        // A turn can end without any audio (seen on v85 right after an end_session): retry once, then fail.
-        if (!speech_.started && env.speechIdle()) {
-          if (!idleSince_) idleSince_ = now ? now : 1;
-          if (now - idleSince_ >= kSilentTurnMs && now - t0_ >= kSilentTurnMs) {
-            if (retried_) { fail("Gemini svarade utan ljud"); return; }
-            retried_ = true; idleSince_ = 0;
-            if (!env.requestText(text_.c_str())) { fail("roboten kunde inte utföra steget"); return; }
-            speech_.begin(now); t0_ = now;
-            return;
-          }
-        } else idleSince_ = 0;
-        auto r = speech_.update(now, env.speaking());
-        if (r == RobotAppPolicy::SpeechWait::Waiting) return;
-        if (r == RobotAppPolicy::SpeechWait::NeverStarted) { fail("roboten började inte prata (är Gemini igång?)"); return; }
-        break;
-      }
-      case Phase::Lights: {
-        int r = env.lightsPoll();
-        if (r == 0 && now - t0_ < kLightsMaxMs) return;
-        if (r != 1) { fail(r == 0 ? "lamporna svarade inte inom 15 s" : "lamporna svarade med fel"); return; }
-        break;
-      }
+    if (!groupOpen_) {
+      if (next_ >= static_cast<int>(steps_.size())) { running_ = false; return; }
+      openGroup(env, now);
+      return;
     }
-    if (phase_ != Phase::Next) { ++index_; phase_ = Phase::Next; }
-    if (index_ >= static_cast<int>(steps_.size())) { running_ = false; return; }
-    execute(env, steps_[index_], now);
+    if (!pollSlots(env, now)) return;  // failed or still waiting
+    groupOpen_ = false;
+    if (next_ >= static_cast<int>(steps_.size())) running_ = false;
   }
 
  private:
-  enum class Phase { Next, Until, Motion, Speech, Lights };
   JsonArrayConst steps_;
-  int index_ = 0;
-  Phase phase_ = Phase::Next;
-  bool running_ = false;
-  uint32_t t0_ = 0, waitMs_ = 0, idleSince_ = 0;
-  bool retried_ = false;
-  std::string text_;
-  RobotAppPolicy::SpeechWait speech_;
+  int next_ = 0, groupStart_ = 0;
+  bool running_ = false, groupOpen_ = false;
   char name_[RobotAppPolicy::kNameMax + 1] = {};
   char error_[160] = {};
+  // Waits of the open group
+  bool untilOn_ = false, motionOn_ = false, speechOn_ = false, lightsOn_ = false, talkOn_ = false;
+  uint32_t untilEnd_ = 0, motionT0_ = 0, speechT0_ = 0, lightsT0_ = 0, talkT0_ = 0, idleSince_ = 0;
+  int speechIdx_ = -1, lightsIdx_ = -1, talkIdx_ = -1, deferredMotion_ = -1;
+  bool retried_ = false, talkSeen_ = false;
+  std::string text_;
+  RobotAppPolicy::SpeechWait speech_;
 
-  void fail(const char* why) {
-    const char* kind = steps_[index_]["kind"] | "?";
-    std::snprintf(error_, sizeof error_, "Steg %d (%s): %s", index_ + 1, kind, why);
-    running_ = false;
+  void failAt(int index, const char* why) {
+    const char* kind = steps_[index]["kind"] | "?";
+    std::snprintf(error_, sizeof error_, "Steg %d (%s): %s", index + 1, kind, why);
+    running_ = false; groupOpen_ = false;
   }
-  void wait(Phase p, uint32_t now, uint32_t ms = 0) { phase_ = p; t0_ = now; waitMs_ = ms; }
   static uint8_t hex2(const char* s) {
     auto v = [](char c) { return c >= 'a' ? c - 'a' + 10 : c >= 'A' ? c - 'A' + 10 : c - '0'; };
     return static_cast<uint8_t>(v(s[0]) * 16 + v(s[1]));
   }
+  void waitUntil(uint32_t now, uint32_t ms) {
+    const uint32_t end = now + ms;
+    if (!untilOn_ || static_cast<int32_t>(end - untilEnd_) > 0) untilEnd_ = end;
+    untilOn_ = true;
+  }
 
-  void execute(Env& env, JsonVariantConst a, uint32_t now) {
+  void openGroup(Env& env, uint32_t now) {
+    groupOpen_ = true; groupStart_ = next_;
+    untilOn_ = motionOn_ = speechOn_ = lightsOn_ = talkOn_ = false;
+    speechIdx_ = lightsIdx_ = talkIdx_ = deferredMotion_ = -1;
+    int end = next_ + 1;
+    while (end < static_cast<int>(steps_.size()) && RobotAppPolicy::withPrevious(steps_[end], end)) ++end;
+    bool hasSpeech = false;
+    for (int i = next_; i < end; ++i) {
+      const char* k = steps_[i]["kind"] | "";
+      if (RobotAppPolicy::roleOf(k) == RobotAppPolicy::Role::Speech && std::strcmp(k, "listen")) hasSpeech = true;
+    }
+    const int first = next_;
+    next_ = end;
+    for (int i = first; i < end; ++i) {
+      if (hasSpeech && RobotAppPolicy::roleOf(steps_[i]["kind"] | "") == RobotAppPolicy::Role::Motion) { deferredMotion_ = i; continue; }
+      if (!execute(env, i, now)) return;
+    }
+  }
+
+  /** Starts step i; returns false (after failing the run) when the robot could not do it. */
+  bool execute(Env& env, int i, uint32_t now) {
+    JsonVariantConst a = steps_[i];
     const char* k = a["kind"] | "";
     bool ok = true;
     if (!std::strcmp(k, "led")) {
       const char* c = a["color"] | "#000000";
       ok = std::strlen(c) == 7 && env.led(a["mode"] | "auto", hex2(c + 1), hex2(c + 3), hex2(c + 5));
     } else if (!std::strcmp(k, "emotion")) ok = env.emotion(a["emotion"] | "neutral");
-    else if (!std::strcmp(k, "gesture")) { ok = env.gesture(a["gesture"] | ""); if (ok) { wait(Phase::Motion, now); return; } }
+    else if (!std::strcmp(k, "gesture")) { ok = env.gesture(a["gesture"] | ""); if (ok) { motionOn_ = true; motionT0_ = now; } }
     else if (!std::strcmp(k, "look")) {
       const double pan = a["pan"] | 0.0, tilt = a["tilt"] | 0.0;
       ok = env.look(static_cast<int>(std::lround(pan / 90.0 * 1280.0)), static_cast<int>(std::lround(450.0 + tilt / 30.0 * 450.0)));
-      if (ok) { wait(Phase::Motion, now); return; }
+      if (ok) { motionOn_ = true; motionT0_ = now; }
     } else if (!std::strcmp(k, "text")) ok = env.showText(a["text"] | "");
     else if (!std::strcmp(k, "image")) ok = env.showImage(a["file"] | "");
+    else if (!std::strcmp(k, "photo")) ok = env.takePhoto(a["show"] | true);
     else if (!std::strcmp(k, "clear")) env.clearScreen();
-    else if (!std::strcmp(k, "speak") || !std::strcmp(k, "ask")) {
-      std::string text = !std::strcmp(k, "speak") ? std::string("Säg exakt detta högt, ingenting annat: \"") + (a["text"] | "") + "\"" : std::string(a["prompt"] | "");
-      text_ = text; retried_ = false; idleSince_ = 0;
-      ok = env.requestText(text.c_str());
-      if (ok) { speech_.begin(now); wait(Phase::Speech, now); return; }
-    } else if (!std::strcmp(k, "lights")) { ok = env.lightsStart(a["action"] | "", a["target"] | ""); if (ok) { wait(Phase::Lights, now); return; } }
+    else if (!std::strcmp(k, "speak") || !std::strcmp(k, "ask") || !std::strcmp(k, "describe")) {
+      text_ = !std::strcmp(k, "speak") ? speakText(a["text"] | "") : !std::strcmp(k, "describe") ? describeText(a["prompt"] | "") : std::string(a["prompt"] | "");
+      retried_ = false; idleSince_ = 0;
+      ok = env.requestText(text_.c_str());
+      if (ok) { speechOn_ = true; speechT0_ = now; speechIdx_ = i; speech_.begin(now); }
+    } else if (!std::strcmp(k, "listen")) { ok = env.startConversation(); if (ok) { talkOn_ = true; talkT0_ = now; talkIdx_ = i; talkSeen_ = false; } }
+    else if (!std::strcmp(k, "lights")) { ok = env.lightsStart(a["action"] | "", a["target"] | ""); if (ok) { lightsOn_ = true; lightsT0_ = now; lightsIdx_ = i; } }
     else if (!std::strcmp(k, "todo")) ok = env.todoAdd(a["text"] | "");
     else if (!std::strcmp(k, "timer")) ok = env.timerStart(a["minutes"] | 1);
-    else if (!std::strcmp(k, "wait")) { wait(Phase::Until, now, static_cast<uint32_t>(std::lround((a["seconds"] | 1.0) * 1000.0))); return; }
+    else if (!std::strcmp(k, "wait")) waitUntil(now, static_cast<uint32_t>(std::lround((a["seconds"] | 1.0) * 1000.0)));
+    else if (!std::strcmp(k, "sound")) { const uint32_t ms = env.playSound(a["sound"] | "beep"); ok = ms > 0; if (ok) waitUntil(now, ms); }
     else if (!std::strcmp(k, "stop_talk")) env.stopTalk();
     else if (!std::strcmp(k, "reset")) env.resetLook();
     else ok = false;
-    if (!ok) { fail("roboten kunde inte utföra steget"); return; }
-    ++index_;
-    if (index_ >= static_cast<int>(steps_.size())) running_ = false;
+    if (!ok) failAt(i, "roboten kunde inte utföra steget");
+    return ok;
+  }
+
+  /** true when every wait of the group is over. */
+  bool pollSlots(Env& env, uint32_t now) {
+    bool waiting = false;
+    if (speechOn_) {
+      // A turn can end without any audio (seen on v85 right after an end_session): retry once, then fail.
+      if (!speech_.started && env.speechIdle()) {
+        if (!idleSince_) idleSince_ = now ? now : 1;
+        if (now - idleSince_ >= kSilentTurnMs && now - speechT0_ >= kSilentTurnMs) {
+          if (retried_) { failAt(speechIdx_, "Gemini svarade utan ljud"); return false; }
+          retried_ = true; idleSince_ = 0; speechT0_ = now;
+          if (!env.requestText(text_.c_str())) { failAt(speechIdx_, "roboten kunde inte utföra steget"); return false; }
+          speech_.begin(now);
+        }
+      } else idleSince_ = 0;
+      auto r = speech_.update(now, env.speaking());
+      if (r == RobotAppPolicy::SpeechWait::NeverStarted) { failAt(speechIdx_, "roboten började inte prata (är Gemini igång?)"); return false; }
+      if (r == RobotAppPolicy::SpeechWait::Done) speechOn_ = false; else waiting = true;
+    }
+    if (deferredMotion_ >= 0 && (speech_.started || !speechOn_)) {  // talking now: start the dance with the words
+      const int m = deferredMotion_; deferredMotion_ = -1;
+      if (!execute(env, m, now)) return false;
+      waiting = true;
+    }
+    if (motionOn_) {
+      if (now - motionT0_ < kMotionMinMs || (env.motionBusy() && now - motionT0_ < kMotionMaxMs)) waiting = true;
+      else motionOn_ = false;
+    }
+    if (lightsOn_) {
+      const int r = env.lightsPoll();
+      if (r == 0 && now - lightsT0_ < kLightsMaxMs) waiting = true;
+      else if (r != 1) { failAt(lightsIdx_, r == 0 ? "lamporna svarade inte inom 15 s" : "lamporna svarade med fel"); return false; }
+      else lightsOn_ = false;
+    }
+    if (talkOn_) {
+      const bool active = env.conversationActive();
+      if (active) talkSeen_ = true;
+      if (!talkSeen_ && now - talkT0_ >= kTalkStartMs) { failAt(talkIdx_, "samtalet startade inte"); return false; }
+      if ((talkSeen_ && !active) || now - talkT0_ >= kTalkMaxMs) talkOn_ = false; else waiting = true;
+    }
+    if (untilOn_) { if (static_cast<int32_t>(now - untilEnd_) < 0) waiting = true; else untilOn_ = false; }
+    return !waiting;
   }
 };
 }  // namespace RobotAppPlayer

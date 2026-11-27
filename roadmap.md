@@ -191,7 +191,9 @@
 - [ ] Prova appbyggaren med den riktiga roboten (sensorgränser, "säger" över USB, bild via USB) — kräver ägaren
 - [x] Appar som data, steg 2 (v85, byggd och testad i datorn): appar skickas till roboten och körs utan dator – meny Mina appar, röst (start_app), klockslag/närhet/ljus/huvudtryck/tal, SD-import
 - [ ] Flasha v85 och prova på roboten: skicka en app, starta via meny och röst, ett automatiskt villkor, SD-import — kräver ägaren
-- [ ] Senare: bild med text ovanpå
+- [x] v87 (byggd och testad i datorn): samtidiga steg, Ta en bild/Titta och berätta/Starta samtal/Spela ljud, villkor lyft/nedställd/välter/knack/batteri/laddare, huvudtrycksrättelse, SD som extra lagring, Foton i Command Hub, ny appsida
+- [ ] Flasha v87 och prova: samtidig dans+tal, foto + Foton, ljud, knack/lyft, flera huvudtryck — kräver ägaren
+- [ ] Senare: villkor "högt ljud" (mikrofonnivå via väckningsordets ljud – försiktigt), bild med text ovanpå
 - Princip: mer beteende via prompter/färdigheter i Command Hub; firmware ändras bara för nya sorters förmågor
 - Princip: ingen skriptmotor (Lua/Berry) på roboten tills deklarativa appar inte räcker — internminnet behövs för TLS
 - Arbetssätt: samla flera önskemål per firmwareversion; mekaniska uppgifter på billigare modell; skicka diagnossammanfattning + relevanta loggrader
