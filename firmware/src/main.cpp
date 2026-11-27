@@ -592,9 +592,9 @@ static void setupMenuAndBluetooth() {
   h.rappCount = []() { return RobotApps::count(); };
   h.rappName = [](int i) { return RobotApps::name(i); };
   h.rappStart = [](int i) { return RobotApps::startIndex(i, "meny"); };
-  h.rappStop = []() { RobotApps::stop(); };
-  h.rappReset = []() { RobotApps::stop(); RobotApps::resetLook(); };
-  h.rappImportSd = []() { return RobotApps::importSd(); };
+  h.rappStop = []() { Serial.println("[APP] menu: Stopp"); RobotApps::stop(); };
+  h.rappReset = []() { Serial.println("[APP] menu: Återställ"); RobotApps::stop(); RobotApps::resetLook(); };
+  h.rappImportSd = []() { Serial.println("[APP] menu: SD-kort"); String r = RobotApps::importSd(); Serial.printf("[APP] SD: %s\n", r.c_str()); return r; };
   h.rappStatus = []() { return RobotApps::statusLine(); };
   TouchMenu::begin(h);
   if (bleAtBoot()) setBle(true);

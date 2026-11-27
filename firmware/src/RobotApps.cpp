@@ -186,6 +186,7 @@ void queue(int index, const char* origin, bool automatic) {
 void pollTriggers(bool busy) {
   const uint32_t now = millis();
   if (busy) for (auto& row : g_edges) for (auto& e : row) e = Edge{};
+  static uint32_t lastSensorLog = 0;  // v86: show sensor apps' readings at most every 10 s, so thresholds can be checked in the log
   // Clock (also while busy: the start waits for the conversation to end).
   if (now - g_lastClock >= kClockPollMs) {
     g_lastClock = now;
@@ -213,6 +214,7 @@ void pollTriggers(bool busy) {
   g_lastSensor = now;
   uint32_t psRaw = 0, alsAvg = 0;
   const bool known = robotAppsReadLtr553(psRaw, alsAvg);
+  if (now - lastSensorLog >= 10000) { lastSensorLog = now; Serial.printf("[APP] sensors ok=%d near=%u light=%u\n", known, static_cast<unsigned>(psRaw), static_cast<unsigned>(alsAvg)); }
   for (int a = 0; a < g_count; ++a) {
     if (!g_meta[a].enabled) continue;
     for (int i = 0; i < g_meta[a].triggerCount; ++i) {
@@ -396,6 +398,7 @@ void onUserWords(const char* fragment) {
   }
 }
 bool onHeadTouch() {
+  Serial.println("[APP] head touch");
   if (!g_meta || g_player.running() || g_pending.index >= 0) return false;
   for (int a = 0; a < g_count; ++a) {
     if (!g_meta[a].enabled) continue;
