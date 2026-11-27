@@ -613,7 +613,8 @@ static void pollBluetooth() {
 
 // Conversation, menu, camera, diagnostics or an internet worker own the robot: apps must not start now.
 static bool robotBusy() {
-  return gemini.isReady() || gemini.isConnecting() || gemini.continuousConversation() || gemini.isRecording() || gemini.canInterrupt() || gemini.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy();
+  // v86: a warm idle session (connected, mic off, after a turn) does not own the robot; apps may start.
+  return (gemini.isReady() && !gemini.warmIdle()) || gemini.isConnecting() || gemini.continuousConversation() || gemini.isRecording() || gemini.canInterrupt() || gemini.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy();
 }
 void loop() {
   PerfMonitor::loopStart();

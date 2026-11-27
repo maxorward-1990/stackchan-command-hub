@@ -9,6 +9,7 @@ avsnitten nedan är v61-källans ursprungliga noteringar.
 
 ## v86 — appar som pratar direkt efter ett röstkommando
 - v85 startade appen samtidigt som samtalet stängdes; Gemini svarade då "Disco!" som text utan ljud. Appen väntar nu 1,5 s efter samtalet, och ett tal-steg som slutar utan ljud provas en gång till innan appen stoppas med felet "Gemini svarade utan ljud". Loggen visar `[TUR] klar utan ljud` när en tur saknar ljud.
+- En app kan starta medan Gemini-anslutningen vilar efter en tur (mikrofon av); i v85 väntade starten från Command Hub tills den avbröts.
 
 ## v85 — egna appar på roboten
 - Appar från Command Hubs appbyggare (format v1) skickas till roboten (`/api/robotapps`, bilder i delar) och körs där utan dator: start från menyn (Mina appar), rösten (Gemini-verktyget `start_app`, "starta appen …") eller automatiskt på klockslag, närhet, ljus, huvudtryck eller ett ord användaren säger.

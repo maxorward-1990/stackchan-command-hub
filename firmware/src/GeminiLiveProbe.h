@@ -54,6 +54,7 @@ class GeminiLiveProbe {
   bool isConnecting() const { return connect_requested_ && !setup_complete_; }
   bool isRecording() const { return realtime_recording_; }
   bool isSpeaking() const { return speaking_; }
+  bool warmIdle() const { return warm_idle_; }  // v86: connected but idle (mic off) after a turn
   bool continuousConversation() const { return continuous_conversation_; }
   bool isMicReadyForSpeech() const { return mic_ready_for_speech_; }
   uint16_t lastMicRms() const { return last_mic_rms_; }
