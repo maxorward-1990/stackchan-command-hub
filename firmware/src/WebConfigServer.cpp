@@ -7,6 +7,10 @@
 #include "CameraStreamPolicy.h"
 #include "ToolTogglePolicy.h"
 #include "ScreenImage.h"
+#include "DeskApp.h"
+#include "FocusApp.h"
+#include "TouchMenu.h"
+#include "InternetVisual.h"
 #include "AudioDiagnostics.h"
 #include "SpeechPolicy.h"
 #include "FirmwareVersion.h"
@@ -15,7 +19,7 @@
 #include "SmartHomePolicy.h"
 #include "TodoStore.h"
 #include "Personality.h"
-#include "Proximity.h"
+#include "DiagnosticMode.h"
 #include <esp_system.h>
 #include <M5Unified.h>
 #include <M5StackChan.h>
@@ -40,6 +44,58 @@ constexpr const char* kPersonaPromptPath = "/app/StackChan/prompts/persona.txt";
 constexpr const char* kSecretsMetaPath = "/app/StackChan/secrets/meta.jsonl";
 constexpr const char* kWebPasswordHashPath = "/app/StackChan/secrets/web_password_sha256.txt";
 constexpr const char* kWebAuthUser = "stackchan";
+
+// LTR-553ALS-WA on CoreS3 internal I2C.  This diagnostic helper deliberately
+// does not drive any wake/stop behavior; it only exposes raw values so we can
+// calibrate thresholds from the real robot before adding gesture semantics.
+constexpr uint8_t kLtr553Addr = 0x23;
+constexpr uint8_t kLtrAlsContr = 0x80;
+constexpr uint8_t kLtrPsContr = 0x81;
+constexpr uint8_t kLtrPsLed = 0x82;
+constexpr uint8_t kLtrPsNPulses = 0x83;
+constexpr uint8_t kLtrPsMeasRate = 0x84;
+constexpr uint8_t kLtrAlsMeasRate = 0x85;
+constexpr uint8_t kLtrAlsDataCh1 = 0x88;
+constexpr uint8_t kLtrAlsDataCh0 = 0x8A;
+constexpr uint8_t kLtrStatus = 0x8C;
+constexpr uint8_t kLtrPsData = 0x8D;
+bool g_ltr553_configured = false;
+uint32_t g_ltr553_configured_ms = 0;
+String g_ltr553_last_error;
+
+bool ltrRead(uint8_t reg, uint8_t* data, size_t len) {
+  return M5.In_I2C.readRegister(kLtr553Addr, reg, data, len, 100000L);
+}
+
+bool ltrWrite1(uint8_t reg, uint8_t value) {
+  return M5.In_I2C.writeRegister(kLtr553Addr, reg, &value, 1, 100000L);
+}
+
+bool configureLtr553Once() {
+  if (g_ltr553_configured) return true;
+
+  // Same low-risk baseline as the official CoreS3 example: PS 50 ms, 40 kHz
+  // LED pulse, ALS active.  These are sensor configuration writes only; no
+  // interrupt thresholds, no wake callback, no conversation control.
+  bool ok = true;
+  ok = ok && ltrWrite1(kLtrPsContr, 0x00);      // PS standby while configuring.
+  ok = ok && ltrWrite1(kLtrAlsContr, 0x00);     // ALS standby while configuring.
+  ok = ok && ltrWrite1(kLtrPsLed, 0x27);        // 40 kHz, 100% duty, 100 mA.
+  ok = ok && ltrWrite1(kLtrPsNPulses, 0x01);    // 1 pulse, official default.
+  ok = ok && ltrWrite1(kLtrPsMeasRate, 0x00);   // 50 ms PS measurement.
+  ok = ok && ltrWrite1(kLtrAlsContr, 0x19);     // ALS active, gain 48x.
+  ok = ok && ltrWrite1(kLtrAlsMeasRate, 0x09);  // 100 ms integration/rate.
+  ok = ok && ltrWrite1(kLtrPsContr, 0x02);      // PS active.
+
+  if (ok) {
+    g_ltr553_configured = true;
+    g_ltr553_configured_ms = millis();
+    g_ltr553_last_error = "";
+  } else {
+    g_ltr553_last_error = "i2c_config_failed";
+  }
+  return ok;
+}
 
 void fillAudioDirectionDiagnostic(JsonObject audio, bool geminiBusy) {
   audio["enabled"] = true;
@@ -280,6 +336,37 @@ void WebConfigServer::loop() {
 }
 
 void WebConfigServer::registerRoutes() {
+  on("/api/apps", HTTP_GET, [this]() {
+    if (!requireAuth()) return;
+    DeskApp::update(gemini_.isReady() || gemini_.isConnecting() || gemini_.continuousConversation() || gemini_.isRecording() || gemini_.canInterrupt() || gemini_.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy());
+    JsonDocument out; DeskApp::status(out); sendJson(200, out);
+  });
+  on("/api/apps", HTTP_POST, [this]() {
+    if (!requireAuth()) return;
+    JsonDocument in, out;
+    if (readBody().length() > 1024 || deserializeJson(in, readBody())) { out["ok"] = false; out["error"] = "invalid_app_request"; sendJson(400, out); return; }
+    const bool busy = gemini_.isReady() || gemini_.isConnecting() || gemini_.continuousConversation() || gemini_.isRecording() || gemini_.canInterrupt() || gemini_.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy();
+    int code = DeskApp::handle(in.as<JsonVariantConst>(), out, busy);
+    if (code == 200 && !busy && std::strcmp(in["action"] | "", "stop")) FocusApp::stop();
+    if (code == 200 && !busy) { ScreenImage::clear(); emotion_.setEmotion("neutral"); emotion_.forceRedraw(); }
+    sendJson(code, out);
+  });
+  on("/api/apps/focus", HTTP_GET, [this]() {
+    if (!requireAuth()) return;
+    FocusApp::update(gemini_.isReady() || gemini_.isConnecting() || gemini_.continuousConversation() || gemini_.isRecording() || gemini_.canInterrupt() || gemini_.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy());
+    JsonDocument out; FocusApp::status(out); sendJson(200, out);
+  });
+  on("/api/apps/focus", HTTP_POST, [this]() {
+    if (!requireAuth()) return;
+    JsonDocument in, out;
+    if (readBody().length() > 512 || deserializeJson(in, readBody())) { out["ok"] = false; out["error"] = "invalid_app_request"; sendJson(400, out); return; }
+    const bool busy = gemini_.isReady() || gemini_.isConnecting() || gemini_.continuousConversation() || gemini_.isRecording() || gemini_.canInterrupt() || gemini_.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy();
+    const bool starting = !std::strcmp(in["action"] | "", "start");
+    int code = FocusApp::handle(in.as<JsonVariantConst>(), out, busy);
+    if (code == 200 && starting) { DeskApp::stop(); ScreenImage::clear(); emotion_.setEmotion("neutral"); emotion_.forceRedraw(); }
+    sendJson(code, out);
+  });
+
   on("/", HTTP_GET, [this]() { if (requireAuth()) handleIndex(); });
   on("/search", HTTP_GET, [this]() {
     if (!requireAuth()) return;
@@ -402,6 +489,7 @@ void WebConfigServer::registerRoutes() {
     if (!requireAuth()) return;
     JsonDocument doc;
     if (readBody().length() > 90000 || deserializeJson(doc, readBody())) { reply(400, "application/json", "{\"ok\":false}"); return; }
+    DeskApp::stopFullscreen(); FocusApp::leaveFullscreen();
     bool ok = false;
     String image = doc["image"] | "";
     if (image == "clear") { ScreenImage::clear(); ok = true; }
@@ -469,6 +557,22 @@ void WebConfigServer::registerRoutes() {
   on("/api/servo/gesture", HTTP_POST, [this]() { if (requireAuth()) handleServoGesture(); });
   on("/api/voice/toggle", HTTP_GET, [this]() { if (requireAuth()) handleVoiceToggle(); });
   on("/api/voice/toggle", HTTP_POST, [this]() { if (requireAuth()) handleVoiceToggle(); });
+  on("/api/diagnostic", HTTP_GET, [this]() {
+    if (!requireAuth()) return;
+    JsonDocument d; d["ok"] = true; d["active"] = DiagnosticMode::active(); d["remaining_ms"] = DiagnosticMode::remainingMs();
+    sendJson(200, d);
+  });
+  on("/api/diagnostic", HTTP_POST, [this]() {
+    if (!requireAuth()) return;
+    JsonDocument in, d;
+    String body = readBody();
+    if (body.length() > 128 || deserializeJson(in, body) || !in["active"].is<bool>()) {
+      d["ok"] = false; d["error"] = "invalid_diagnostic_request"; sendJson(400, d); return;
+    }
+    DiagnosticMode::set(in["active"].as<bool>(), in["seconds"] | 600L);
+    d["ok"] = true; d["active"] = DiagnosticMode::active(); d["remaining_ms"] = DiagnosticMode::remainingMs();
+    sendJson(200, d);
+  });
   on("/api/gemini/text", HTTP_GET, [this]() { if (requireAuth()) handleGeminiText(); });
   on("/api/gemini/text", HTTP_POST, [this]() { if (requireAuth()) handleGeminiText(); });
   on("/api/gemini/look", HTTP_GET, [this]() { if (requireAuth()) handleGeminiLook(); });
@@ -647,8 +751,10 @@ void WebConfigServer::handleStatus() {
   doc["firmware_version"] = kFirmwareVersion;
   doc["uptime_ms"] = millis();
   doc["reset_reason"] = static_cast<int>(esp_reset_reason());
-  doc["wake_word_available"] = false;
-  doc["wake_method"] = "touch_or_web_button";
+  doc["wake_word_available"] = WakeWord::available();
+  doc["wake_word_listening"] = WakeWord::listening();
+  doc["wake_method"] = WakeWord::available() ? "wake_word_touch_or_web" : "touch_or_web_button";
+  doc["diagnostic_mode_ms"] = DiagnosticMode::remainingMs();
   JsonDocument searchDiagnostics;
   deserializeJson(searchDiagnostics, WebResearch::diagnostics());
   doc["web_search"].set(searchDiagnostics.as<JsonVariantConst>());
@@ -1376,36 +1482,37 @@ void WebConfigServer::handleSensors() {
 
   auto ltr = doc["ltr553"].to<JsonObject>();
   ltr["addr"] = "0x23";
-  const auto reading = Proximity::readDiagnostic();
-  ltr["configured"] = reading.configured;
-  ltr["configured_ms"] = reading.configuredMs;
-  ltr["config_ok"] = reading.configOk;
-  ltr["status_ok"] = reading.statusOk;
-  ltr["status_reg"] = reading.status;
-  ltr["ps_ok"] = reading.psOk;
-  ltr["ps_raw"] = reading.raw;
-  ltr["als_ok"] = reading.alsOk;
-  ltr["als_ch0"] = reading.ch0;
-  ltr["als_ch1"] = reading.ch1;
-  ltr["als_avg"] = (uint32_t(reading.ch0) + reading.ch1) / 2;
-  ltr["als_unit"] = "raw_counts";
-  ltr["als_gain"] = ProximityPolicy::kAlsGain;
-  ltr["als_integration_ms"] = ProximityPolicy::kAlsIntegrationMs;
-  ltr["als_valid"] = reading.alsValid;
-  ltr["lux_calibrated"] = false;
-  if (reading.alsValid) ltr["lux_estimate"] = reading.luxEstimate;
-  ltr["ps_saturated"] = reading.psSaturated;
-  ltr["ps_led_peak_ma"] = 100;
-  ltr["ps_led_duty_percent"] = 100;
-  ltr["ps_pulses"] = ProximityPolicy::kPsPulses;
-  ltr["ps_period_ms"] = ProximityPolicy::kPollMs;
-  ltr["ps_new_data"] = reading.statusOk && (reading.status & 0x01);
-  ltr["als_new_data"] = reading.statusOk && (reading.status & 0x04);
-  ltr["last_error"] = reading.error;
-  ltr["control_enabled"] = false; // v65: hand control paused in firmware
-  ltr["control_paused"] = true;
-  ltr["control_saved"] = Personality::get().proximityControl;
-  ltr["near_threshold"] = Personality::get().proximityThreshold;
+  ltr["configured"] = g_ltr553_configured;
+  ltr["configured_ms"] = g_ltr553_configured_ms;
+  bool ltrConfigOk = configureLtr553Once();
+  ltr["config_ok"] = ltrConfigOk;
+  ltr["configured"] = g_ltr553_configured;
+  ltr["configured_ms"] = g_ltr553_configured_ms;
+
+  uint8_t status = 0;
+  uint8_t psBuf[2] = {0, 0};
+  uint8_t alsBuf[4] = {0, 0, 0, 0};
+  bool statusOk = ltrRead(kLtrStatus, &status, 1);
+  bool psOk = ltrRead(kLtrPsData, psBuf, 2);
+  bool alsOk = ltrRead(kLtrAlsDataCh1, alsBuf, 4);
+  uint16_t psRaw = ((static_cast<uint16_t>(psBuf[1]) & 0x07) << 8) | psBuf[0];
+  uint16_t alsCh1 = (static_cast<uint16_t>(alsBuf[1]) << 8) | alsBuf[0];
+  uint16_t alsCh0 = (static_cast<uint16_t>(alsBuf[3]) << 8) | alsBuf[2];
+  ltr["status_ok"] = statusOk;
+  ltr["status_reg"] = status;
+  ltr["ps_ok"] = psOk;
+  ltr["ps_raw"] = psRaw;
+  ltr["als_ok"] = alsOk;
+  ltr["als_ch0"] = alsCh0;
+  ltr["als_ch1"] = alsCh1;
+  ltr["als_avg"] = (static_cast<uint32_t>(alsCh0) + static_cast<uint32_t>(alsCh1)) / 2;
+  ltr["ps_new_data"] = statusOk ? ((status & 0x80) != 0) : false;
+  ltr["als_new_data"] = statusOk ? ((status & 0x04) != 0) : false;
+  ltr["last_error"] = g_ltr553_last_error;
+  if (!ltrConfigOk || !statusOk || !psOk || !alsOk) {
+    g_ltr553_last_error = "i2c_read_failed_or_camera_bus_busy";
+    ltr["last_error"] = g_ltr553_last_error;
+  }
 
   auto gem = doc["gemini"].to<JsonObject>();
   gem["speaking"] = gemini_.isSpeaking();

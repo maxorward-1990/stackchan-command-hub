@@ -1,5 +1,4 @@
 #include "Personality.h"
-#include "ProximityPolicy.h"
 using namespace PersonalityPolicy;
 namespace {
 constexpr const char* kPath = "/personality.json";
@@ -37,16 +36,7 @@ String apply(JsonVariantConst in, Settings& s) {
   if (!flag("sleep_face", s.sleepFace) || !flag("subtitles", s.subtitles) || !flag("listen_cue", s.listenCue) ||
       !flag("touch_menu", s.touchMenu) || !flag("nod_on_start", s.nodOnStart) ||
       !flag("status_text", s.statusText) || !flag("listening_waves", s.listeningWaves) ||
-      !flag("eyebrows", s.eyebrows) || !flag("cheeks", s.cheeks) || !flag("wake_word", s.wakeWord) ||
-      !flag("proximity_control", s.proximityControl)) return "invalid_flag";
-  if (!in["proximity_threshold"].isNull()) {
-    if (!in["proximity_threshold"].is<long>() || !ProximityPolicy::validThreshold(in["proximity_threshold"].as<long>())) return "invalid_proximity_threshold";
-    s.proximityThreshold = in["proximity_threshold"].as<long>();
-  }
-  if (!in["wake_min_peak"].isNull()) {
-    if (!in["wake_min_peak"].is<long>() || !WakeWordPolicy::validMinPeak(in["wake_min_peak"].as<long>())) return "invalid_wake_min_peak";
-    s.wakeMinPeak = in["wake_min_peak"].as<long>();
-  }
+      !flag("eyebrows", s.eyebrows) || !flag("cheeks", s.cheeks) || !flag("wake_word", s.wakeWord)) return "invalid_flag";
   if (!in["wake_threshold_milli"].isNull()) {
     if (!in["wake_threshold_milli"].is<long>() || !WakeWordPolicy::validThresholdMilli(in["wake_threshold_milli"].as<long>())) return "invalid_wake_threshold";
     s.wakeThresholdMilli = in["wake_threshold_milli"].as<long>();
@@ -95,11 +85,7 @@ void toJson(JsonObject o) {
   o["eyebrows"] = g.eyebrows;
   o["cheeks"] = g.cheeks;
   o["wake_word"] = g.wakeWord;
-  o["wake_min_peak"] = g.wakeMinPeak;
   o["wake_threshold_milli"] = g.wakeThresholdMilli;
-  o["proximity_control"] = g.proximityControl;
-  o["proximity_threshold"] = g.proximityThreshold;
-  o["proximity_threshold_min"] = ProximityPolicy::kMinThreshold; // read-only capability
   JsonObject led = o["led"].to<JsonObject>();
   JsonObject eye = o["eye"].to<JsonObject>();
   for (uint8_t i = 0; i < StateCount; ++i) {

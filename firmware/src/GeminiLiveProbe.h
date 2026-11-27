@@ -178,7 +178,6 @@ class GeminiLiveProbe {
   uint32_t playback_drain_started_ms_ = 0;
   uint32_t pending_tool_started_ms_ = 0;
   uint32_t awaiting_reply_ms_ = 0;
-  bool tap_turn_ = false;             // v65: reply wait started by a manual turn end
   String last_error_, last_tool_;
   uint8_t* fragment_buffer_ = nullptr;
   size_t fragment_size_ = 0;

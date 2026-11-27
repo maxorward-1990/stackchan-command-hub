@@ -1,19 +1,19 @@
 # Bygg robotens firmware på GitHub när firmwarekällan ändras (eller manuellt).
-# Kör alla firmwaretester, förbereder källan från v61 med prepare_apps.py, bygger med
-# PlatformIO och sparar binären + storlek/MD5 i branchen `firmware-builds`
+# Kör alla firmwaretester, kopierar källträdet firmware/ (v84-baslinjen, redigeras direkt) till
+# /tmp, bygger med PlatformIO och sparar binären + storlek/MD5 i branchen `firmware-builds`
 # (builds/<version>-<commit>-app.bin). Flashning sker alltid manuellt från Command Hub.
 name: Bygg firmware
 
 on:
   push:
     branches: [main, preview]
-    paths: ["firmware/**", "v61/**", ".github/workflows/firmware.yml"]
+    paths: ["firmware/**", ".github/workflows/firmware.yml"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# Same toolchain path as the original v66+ builds (prepare_apps.py docstring), so embedded
+# Same toolchain and build path as the v66–v84 builds (firmware/history/prepare_apps.py), so embedded
 # source paths match and a rebuild differs from a released image only in build time.
 env:
   PLATFORMIO_CORE_DIR: /tmp/stackchan-pio-core
@@ -34,14 +34,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/stackchan-pio-core
-          key: pio-${{ runner.os }}-${{ hashFiles('v61/firmware/platformio.ini', 'firmware/apps/prepare_apps.py') }}
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
       - name: Installera PlatformIO
         run: pip install --upgrade platformio
       - name: Firmwaretester
         run: bash firmware/run_tests.sh
-      - name: Förbered källan från v61
-        run: python3 firmware/apps/prepare_apps.py /tmp/stackchan-build
+      - name: Kopiera källträdet till byggkatalogen
+        run: |
+          rm -rf /tmp/stackchan-build
+          cp -r firmware /tmp/stackchan-build
+          rm -rf /tmp/stackchan-build/history /tmp/stackchan-build/.pio
       - name: Bygg
         run: pio run -d /tmp/stackchan-build
       - name: Storlek, MD5 och version

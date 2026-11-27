@@ -8,30 +8,8 @@
 namespace WakeWordPolicy {
 constexpr uint32_t kQuietAfterConversationMs = 1500; // let speaker/I2S settle after a session
 constexpr uint32_t kRetryAfterFailureMs = 30000;     // mic/model start failure backoff
-constexpr uint16_t kDefaultMinPeak = 1500;
-constexpr uint16_t kDefaultThresholdMilli = 650;
-constexpr uint32_t kEvidenceSamples = 16000; // one second of completed PCM, no audio retained
-inline bool validMinPeak(long v) { return v >= 0 && v <= 32767; }
-inline bool validThresholdMilli(long v) { return v >= 400 && v <= 950; }
-// Fixed-size peak envelope preserves loud syllables before a quiet detection tail.
-struct Evidence {
-  uint16_t peaks[32] = {};
-  uint32_t ages[32] = {};
-  uint8_t next = 0;
-  void reset() { *this = Evidence{}; }
-  uint16_t add(uint16_t peak, uint32_t samples) {
-    for (uint8_t i = 0; i < 32; ++i) {
-      ages[i] = ages[i] >= kEvidenceSamples || samples >= kEvidenceSamples - ages[i]
-        ? kEvidenceSamples : ages[i] + samples;
-      if (ages[i] >= kEvidenceSamples) peaks[i] = 0;
-    }
-    peaks[next] = peak; ages[next] = 0; next = (next + 1) % 32;
-    uint16_t maximum = 0;
-    for (uint16_t p : peaks) if (p > maximum) maximum = p;
-    return maximum;
-  }
-};
-inline bool acceptCandidate(uint16_t recentPeak, uint16_t minimum) { return recentPeak > minimum; }
+constexpr uint16_t kDefaultThresholdMilli = 490;
+inline bool validThresholdMilli(long value) { return value >= 450 && value <= 750; }
 inline bool hasExternalMemory(size_t bytes) { return bytes > 0; }
 
 struct Inputs {

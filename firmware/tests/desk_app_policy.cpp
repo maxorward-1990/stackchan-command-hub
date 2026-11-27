@@ -1,4 +1,4 @@
-#include "../apps/DeskAppPolicy.h"
+#include "../src/DeskAppPolicy.h"
 #include <cassert>
 int main() {
   using namespace DeskAppPolicy;

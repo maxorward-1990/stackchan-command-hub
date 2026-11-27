@@ -1,6 +1,7 @@
 #include "WakeWord.h"
 #include "WakeWordPolicy.h"
 #include "Personality.h"
+#include <cmath>
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <esp_heap_caps.h>
@@ -17,13 +18,12 @@ const esp_wn_iface_t* wn = nullptr;
 model_iface_data_t* wnData = nullptr;
 char* modelName = nullptr;
 int chunk = 0;
+uint16_t appliedThresholdMilli = 0;
 constexpr int kBufs = 3;
 int16_t* bufs[kBufs] = {};
 int head = 0, pending = 0;
 bool running = false;
 uint32_t failMs = 0, startedMs = 0;
-WakeWordPolicy::Evidence evidence;
-uint16_t appliedThresholdMilli = 0;
 
 void release() {
   uint32_t t0 = millis();
@@ -31,7 +31,6 @@ void release() {
   if (M5.Mic.isRunning()) M5.Mic.end();
   head = pending = 0;
   running = false;
-  evidence.reset();
 }
 void memoryLog(const char* phase) {
   Serial.printf("[WAKE] memory phase=%s internal_free=%u internal_largest=%u psram_free=%u\n", phase,
@@ -44,7 +43,6 @@ void unload() {
   if (wnData) { wn->destroy(wnData); wnData = nullptr; }
   for (auto& buf : bufs) { if (buf) heap_caps_free(buf); buf = nullptr; }
   chunk = 0;
-  appliedThresholdMilli = 0;
 }
 
 bool load() {
@@ -54,16 +52,20 @@ bool load() {
     Serial.println("[WAKE] start blocked: no free PSRAM (retry after 30s)");
     return false;
   }
-  // This bundled SDK documents DET_MODE_90 as flash-only for WakeNet10.
-  // Keep WakeNet9's proven PSRAM mode; tune the actual threshold instead.
   wnData = wn->create(modelName, DET_MODE_95);
   if (wnData) {
     appliedThresholdMilli = Personality::get().wakeThresholdMilli;
-    if (wn->set_det_threshold(wnData, appliedThresholdMilli / 1000.0f, 1) != 1) {
+    const float requested = appliedThresholdMilli / 1000.0f;
+    // WakeNet quantizes thresholds: the real robot reads 0.486 for requested 0.490.
+    // Allow at most 0.020 rounding error; 0.000001 absorbs float comparison noise only.
+    const int accepted = wn->set_det_threshold(wnData, requested, 1);
+    const float actual = wn->get_det_threshold(wnData, 1);
+    if (!accepted || !std::isfinite(actual) || actual <= 0.0f || actual >= 1.0f || std::fabs(actual - requested) > 0.020001f) {
       unload(); failMs = millis() | 1;
-      Serial.println("[WAKE] threshold configuration failed; start blocked");
+      Serial.printf("[WAKE] threshold apply failed requested=%.3f actual=%.3f\n", requested, actual);
       return false;
     }
+    Serial.printf("[WAKE] threshold applied requested=%.3f actual=%.3f\n", requested, actual);
     chunk = wn->get_samp_chunksize(wnData);
     if (chunk > 0 && chunk <= 4096) {
       for (auto& buf : bufs) {
@@ -132,29 +134,16 @@ bool loop(bool mayListen) {
   while (pending > 0 && static_cast<int>(M5.Mic.isRecording()) < pending) {
     int16_t* pcm = bufs[head];
     head = (head + 1) % kBufs; --pending;
-    uint16_t peak = 0;
-    for (int i = 0; i < chunk; ++i) {
-      int v = pcm[i]; if (v < 0) v = -v;
-      if (v > peak) peak = static_cast<uint16_t>(v);
-    }
-    const uint16_t recentPeak = evidence.add(peak, chunk);
     uint32_t t0 = micros();
     wakenet_state_t r = wn->detect(wnData, pcm);
     uint32_t detectUs = micros() - t0;
     if (r == WAKENET_DETECTED) {
-      const uint16_t minimum = Personality::get().wakeMinPeak;
-      if (!WakeWordPolicy::acceptCandidate(recentPeak, minimum)) {
-        Serial.printf("[WAKE] rejected reason=low_signal peak=%u recent_peak=%u min_peak=%u threshold=%.3f\n",
-          peak, recentPeak, minimum, wn->get_det_threshold(wnData, 1));
-        // Destroy, never clean/reset the histackchan model. No Gemini connection.
-        stop();
-        return false;
-      }
+      int peak = 0;
+      for (int i = 0; i < chunk; ++i) { int v = abs(pcm[i]); if (v > peak) peak = v; }
       uint32_t d0 = millis();
       release();
-      Serial.printf("[WAKE] detected word=%s threshold=%.3f detect_us=%lu peak=%u recent_peak=%u min_peak=%u listened_ms=%lu release_ms=%lu\n",
+      Serial.printf("[WAKE] detected word=%s threshold=%.3f detect_us=%lu peak=%d listened_ms=%lu release_ms=%lu\n",
                     wn->get_word_name(wnData, 1), wn->get_det_threshold(wnData, 1), static_cast<unsigned long>(detectUs), peak,
-                    recentPeak, minimum,
                     static_cast<unsigned long>(d0 - startedMs), static_cast<unsigned long>(millis() - d0));
       stop(); // free active model before caller starts Gemini TLS
       return true;

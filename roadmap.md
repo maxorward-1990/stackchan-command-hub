@@ -192,7 +192,7 @@
 - [x] Release med en knapp: GitHub-workflow (workflow_dispatch) kopierar ett bygge från firmware-builds till public/firmware + firmware-releases.ts, så release inte kräver en agentsession
 - [x] v84 = grundversion (branch baseline-v84), rekommenderad
 - [ ] Undersök Felsökning → "Starta test" (ägaren: fungerar inte alls; behöver beskrivning/konsolfel)
-- [ ] Frys grunden: när v80 är verifierad blir den rekommenderad och overlayn i prepare_apps.py konsolideras till en vanlig källträd-baslinje
+- [x] Frys grunden: `firmware/` är nu v84 som vanligt källträd (identiskt med prepare_apps.py-resultatet, alla firmwaretester gröna); overlayn arkiverad i `firmware/history/`
 - [ ] Appar som data: fasta firmware-byggstenar (paneler, timers, gester, LED, ansikten, sök, prompter); appar som JSON skapade i Command Hub och sparade på roboten, ingen flashning per app
 - [ ] Mer beteende via prompter/färdigheter i Command Hub; firmware ändras bara för nya sorters förmågor
 - [ ] Ingen skriptmotor (Lua/Berry) på roboten tills deklarativa appar inte räcker — internminnet behövs för TLS

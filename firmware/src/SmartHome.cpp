@@ -21,6 +21,7 @@ static SemaphoreHandle_t mutex = nullptr;
 static String clientId, clientSecret, accessToken, result, lastError;
 static uint32_t tokenExpiresMs = 0, pendingToken = 0, lastDurationMs = 0;
 static bool optedIn = false, lastOk = false;
+static volatile bool workerAlive = false, cancelRequested = false;
 static AsyncToolState state;
 static std::vector<Device> devices;
 static std::vector<SmartHomePolicy::Scene> scenes;
@@ -71,6 +72,7 @@ static bool syncClock(uint32_t waitMs) {
 static bool callOnce(WiFiClientSecure& client, const char* method, const String& path, const String& body,
                  const String& id, const String& secret, const String& token, JsonDocument& out, String& err,
                  JsonDocument* filter = nullptr) {
+  if (cancelRequested) { err = "cancelled"; return false; }
   String t = nowMs();
   std::string toSign = SmartHomePolicy::stringToSign(method, sha256Hex(body).c_str(), path.c_str());
   String sign = hmacUpper(secret, SmartHomePolicy::signPayload(id.c_str(), token.c_str(), t.c_str(), "", toSign));
@@ -85,6 +87,7 @@ static bool callOnce(WiFiClientSecure& client, const char* method, const String&
   int status = !strcmp(method, "POST") ? http.POST(body) : http.GET();
   if (status <= 0) {  // TLS alloc can fail transiently while Live audio buffers churn
     http.end(); client.stop(); vTaskDelay(pdMS_TO_TICKS(400));
+    if (cancelRequested) { err = "cancelled"; return false; }
     if (!http.begin(client, String("https://") + SmartHomePolicy::host + path)) { err = "https_begin_failed"; return false; }
     http.addHeader("client_id", id); http.addHeader("sign", sign); http.addHeader("t", t);
     http.addHeader("sign_method", "HMAC-SHA256");
@@ -302,14 +305,16 @@ static void worker(void*) {
     }
     unlock();
   }
+  workerAlive = false;
   vTaskDelete(nullptr);
 }
 
 static bool startJob(const Job& job) {
   if (!lock()) return false;
-  if (!optedIn || clientId.isEmpty() || clientSecret.isEmpty() || !state.start(pendingToken)) { unlock(); return false; }
-  pendingJob = job; result = ""; unlock();
+  if (!optedIn || clientId.isEmpty() || clientSecret.isEmpty() || workerAlive || !state.start(pendingToken)) { unlock(); return false; }
+  pendingJob = job; result = ""; workerAlive = true; cancelRequested = false; unlock();
   if (xTaskCreate(worker, "smart-home", 10240, nullptr, 1, nullptr) != pdPASS) {
+    workerAlive = false;
     if (lock()) { state.dispatchFailed(); lastError = "smart_home_worker_allocation_failed"; unlock(); }
     return false;
   }
@@ -321,11 +326,11 @@ void configure(const String& id, const String& secret) {
   if (id != clientId || secret != clientSecret) { accessToken = ""; devices.clear(); }
   clientId = id; clientSecret = secret; unlock();
 }
-void setEnabled(bool v) { if (lock()) { optedIn = v; if (!v) { state.cancel(); result = ""; } unlock(); } }
+void setEnabled(bool v) { if (lock()) { optedIn = v; if (!v) { state.cancel(); result = ""; cancelRequested = true; } unlock(); } }
 bool enabled() { bool v = false; if (lock()) { v = optedIn; unlock(); } return v; }
 bool configured() { bool v = false; if (lock()) { v = clientId.length() && clientSecret.length(); unlock(); } return v; }
 bool available() { return enabled() && configured(); }
-bool busy() { bool v = false; if (lock()) { v = state.busy(); unlock(); } return v; }
+bool busy() { bool v = false; if (lock()) { v = state.busy() || workerAlive; unlock(); } return v; }
 bool startList(bool silent) { Job j; j.list = true; j.silent = silent; return startJob(j); }
 bool startControl(JsonVariantConst args) {
   Job j; j.list = false;
@@ -342,7 +347,7 @@ bool takeResult(String& v) {
   if (lock()) { found = state.take(); if (found) { v = result; result = ""; } unlock(); }
   return found;
 }
-void cancel() { if (lock()) { state.cancel(); result = ""; unlock(); } }
+void cancel() { if (lock()) { state.cancel(); result = ""; cancelRequested = true; unlock(); } }
 String deviceNames(size_t maxBytes) {
   String s;
   if (lock()) {

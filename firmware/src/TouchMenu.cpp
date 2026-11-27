@@ -5,6 +5,7 @@
 #include "BleBridge.h"
 #include "ScreenImage.h"
 #include "TouchMenuPolicy.h"
+#include "MenuPagerPolicy.h"
 
 using namespace TouchMenuPolicy;
 
@@ -20,6 +21,10 @@ constexpr int kMaxNets = 20, kPerPage = 4;
 String g_ssid[kMaxNets]; int g_rssi[kMaxNets]; bool g_open[kMaxNets]; int g_netCount = 0, g_page = 0;
 String g_chosen; std::string g_pass; Layer g_layer = Layer::Lower; bool g_showPass = true;
 String g_msg;
+// Carousel: page 0 settings, page 1 clock app, page 2 focus timer. Main-screen touches act on release so swipes can be told from taps.
+constexpr int kMenuPages = 3;
+int g_menuPage = 0, g_px0 = -1, g_py0 = 0, g_px1 = 0, g_py1 = 0;
+String g_appMsg;
 
 lgfx::LGFXBase& D() { return M5StackChan.Display(); }
 const uint16_t BG = TFT_BLACK, FG = TFT_WHITE, ACC = 0x05FF, BTN = 0x2124, WARN = 0xFB20;
@@ -42,9 +47,45 @@ void button(const Rect& r, const String& label, uint16_t col = BTN) {
 bool backHit(int x, int y) { return y < 32 && x < 60; }
 
 // ---------- screens
+void pagerChrome(const char* t) {
+  title(t, true);
+  auto& d = D(); d.setTextColor(BG, ACC);
+  d.setTextDatum(middle_center); d.drawString(">", kW - 80, 16);
+  d.setTextDatum(middle_right); d.drawString("X", kW - 12, 16);
+  for (int i = 0; i < kMenuPages; ++i) { int cx = 190 + i * 14; if (i == g_menuPage) d.fillCircle(cx, 16, 4, BG); else d.drawCircle(cx, 16, 4, BG); }
+}
 void drawMain() {
-  title("Meny", false);
-  D().setTextDatum(middle_right); D().setTextColor(BG, ACC); D().drawString("X", kW - 12, 16);
+  if (g_menuPage == 2) {
+    pagerChrome("Fokus");
+    auto& d = D(); d.setTextDatum(top_left);
+    d.setTextColor(ACC, BG); d.drawString("Fokustimer", 10, 44);
+    const String label = H.focusLabel ? H.focusLabel() : String();
+    const int st = H.focusState ? H.focusState() : 0;
+    d.setTextColor(FG, BG);
+    if (st) d.drawString(label, 10, 70);
+    else {
+      button({6, 62, 60, 48}, "-"); button({254, 62, 60, 48}, "+");
+      d.setTextDatum(middle_center); d.setTextColor(FG, BG); d.drawString(label, 160, 86); d.setTextDatum(top_left);
+    }
+    if (st) { button({6, 118, 150, 60}, st == 2 ? "Fortsätt" : "Paus", ACC); button({164, 118, 150, 60}, "Stopp", WARN); }
+    else { button({6, 118, 150, 60}, "Helskärm", ACC); button({164, 118, 150, 60}, "Widget"); }
+    if (g_appMsg.length()) { d.setTextColor(WARN, BG); d.setTextDatum(top_left); d.drawString(g_appMsg, 10, 192); }
+    return;
+  }
+  if (g_menuPage == 1) {
+    pagerChrome("Appar");
+    auto& d = D(); d.setTextDatum(top_left);
+    d.setTextColor(ACC, BG); d.drawString("Klocka & Väder", 10, 44);
+    String place = H.appLabel ? H.appLabel() : String();
+    d.setTextColor(FG, BG);
+    if (place.length()) d.drawString(place, 10, 70);
+    else { d.drawString("Ingen app sparad ännu.", 10, 70); d.drawString("Starta den en gång från Command Hub.", 10, 90); }
+    button({6, 118, 150, 60}, "Helskärm", place.length() ? ACC : BTN);
+    button({164, 118, 150, 60}, "Widget");
+    if (g_appMsg.length()) { d.setTextColor(WARN, BG); d.setTextDatum(top_left); d.drawString(g_appMsg, 10, 192); }
+    return;
+  }
+  pagerChrome("Inställningar");
   const char* labels[6] = {"Wi-Fi", "Bluetooth", "Volym", "Info", "Starta om", "Stäng"};
   for (int i = 0; i < 6; ++i) button(gridCell(i, 2, 3), labels[i], i == 4 ? WARN : BTN);
 }
@@ -169,7 +210,7 @@ void draw() {
     case Screen::Message: drawMessage(); break;
   }
 }
-void go(Screen s) { g_screen = s; draw(); }
+void go(Screen s) { g_screen = s; g_px0 = -1; draw(); }
 void close() {
   g_active = false; g_pass.clear();
   Serial.println("Menu: closed");
@@ -191,7 +232,36 @@ void connectChosen() {
 void tap(int x, int y) {
   switch (g_screen) {
     case Screen::Main: {
-      if (y < 32 && x > kW - 50) { close(); return; }
+      using MenuPagerPolicy::Title;
+      switch (MenuPagerPolicy::titleHit(x, y)) {
+        case Title::Close: close(); return;
+        case Title::Prev: g_menuPage = MenuPagerPolicy::step(g_menuPage, kMenuPages, MenuPagerPolicy::Gesture::Prev); g_appMsg = ""; draw(); return;
+        case Title::Next: g_menuPage = MenuPagerPolicy::step(g_menuPage, kMenuPages, MenuPagerPolicy::Gesture::Next); g_appMsg = ""; draw(); return;
+        default: break;
+      }
+      if (y < 32) return;
+      if (g_menuPage == 2) {
+        const int st0 = H.focusState ? H.focusState() : 0;
+        if (!st0 && H.focusAdjust && (Rect{6, 62, 60, 48}.hit(x, y) || Rect{254, 62, 60, 48}.hit(x, y))) {
+          H.focusAdjust(x < 160 ? -1 : 1); g_appMsg = ""; draw(); return;
+        }
+        const bool left = Rect{6, 118, 150, 60}.hit(x, y);
+        if (!left && !Rect{164, 118, 150, 60}.hit(x, y)) return;
+        const int st = H.focusState ? H.focusState() : 0;
+        const int act = st ? (left ? 2 : 3) : (left ? 1 : 0);
+        String err = H.focusAction ? H.focusAction(act) : String("Stöds ej");
+        if (err.length()) { g_appMsg = err; draw(); return; }
+        g_appMsg = "";
+        if (act <= 1) close(); else draw();
+        return;
+      }
+      if (g_menuPage == 1) {
+        const bool full = Rect{6, 118, 150, 60}.hit(x, y);
+        if (!full && !Rect{164, 118, 150, 60}.hit(x, y)) return;
+        String err = H.appStart ? H.appStart(full) : String("Stöds ej");
+        if (err.length()) { g_appMsg = err; draw(); return; }
+        g_appMsg = ""; close(); return;
+      }
       switch (gridHit(x, y, 2, 3)) {
         case 0: scanWifi(); go(Screen::Wifi); break;
         case 1: go(Screen::Bluetooth); break;
@@ -258,14 +328,26 @@ void open() {
   if (g_active) return;
   if (H.onOpen) H.onOpen();
   ScreenImage::clear();
-  g_active = true; g_lastTouch = millis(); g_wasPressed = true;  // ignore the opening hold's release
+  g_active = true; g_lastTouch = millis(); g_wasPressed = true; g_px0 = -1;  // ignore the opening hold's release
   Serial.println("Menu: opened");
   go(Screen::Main);
 }
 bool loop(bool pressed, int x, int y) {
   if (!g_active) return false;
   uint32_t now = millis();
-  if (pressed && !g_wasPressed) { g_lastTouch = now; tap(x, y); }
+  if (g_screen == Screen::Main) {
+    if (pressed) {
+      if (!g_wasPressed) { g_lastTouch = now; g_px0 = x; g_py0 = y; }
+      if (g_px0 >= 0) { g_px1 = x; g_py1 = y; }
+    } else if (g_wasPressed && g_px0 >= 0) {
+      g_lastTouch = now;
+      const int x0 = g_px0, y0 = g_py0; g_px0 = -1;
+      const auto g = MenuPagerPolicy::classify(x0, y0, g_px1, g_py1);
+      if (g == MenuPagerPolicy::Gesture::Tap) tap(x0, y0);
+      else if (g == MenuPagerPolicy::Gesture::Close) close();
+      else if (g != MenuPagerPolicy::Gesture::None) { g_menuPage = MenuPagerPolicy::step(g_menuPage, kMenuPages, g); g_appMsg = ""; draw(); }
+    }
+  } else if (pressed && !g_wasPressed) { g_lastTouch = now; tap(x, y); }
   g_wasPressed = pressed;
   if (g_active && g_screen == Screen::Bluetooth) {
     static uint32_t last = 0; static bool lastConn = false;

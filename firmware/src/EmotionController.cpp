@@ -272,6 +272,7 @@ void EmotionController::renderFace() {
     }
   }
 
+  if (ScreenImage::drawApp(canvas)) { canvas.pushSprite(&display, 0, 0); return; }
   auto& d = canvas;
   const int w = display.width();
   const int h = display.height();

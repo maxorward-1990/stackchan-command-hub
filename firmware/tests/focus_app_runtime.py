@@ -90,6 +90,6 @@ int main() {
  out.clear(); assert(FocusApp::handle(in.as<JsonVariantConst>(),out,false)==200 && FocusApp::running() && out["persistent"]==false);
 }
 ''')
-    subprocess.run(["g++", "-std=c++17", "-I", str(tmp), "-I", str(ROOT / "apps"), "-I", str(json_include), str(tmp / "test.cpp"), str(ROOT / "apps/FocusApp.cpp"), "-o", str(tmp / "test")], check=True)
+    subprocess.run(["g++", "-std=c++17", "-I", str(tmp), "-I", str(ROOT / "src"), "-I", str(json_include), str(tmp / "test.cpp"), str(ROOT / "src/FocusApp.cpp"), "-o", str(tmp / "test")], check=True)
     subprocess.run([str(tmp / "test")], check=True)
 print("Actual focus handler: validation, busy rejection, voice yield without stopping, pause/resume, phases, done expiry, saved reboot/offline start, corrupt file and failed write passed")

@@ -6,9 +6,6 @@
 namespace LiveSessionPolicy {
 inline constexpr uint32_t toolDeadlineMs = 70000;
 inline constexpr uint32_t replyDeadlineMs = 30000;
-// v65: a manually ended voice turn with no reply gives up quickly instead of a frozen thinking face.
-inline constexpr uint32_t tapReplyDeadlineMs = 10000;
-inline uint32_t replyDeadline(bool tapTurn) { return tapTurn ? tapReplyDeadlineMs : replyDeadlineMs; }
 inline constexpr uint32_t playbackDeadlineMs = 5000;
 // v31: a USB/text turn with no audio or tool call after this long is re-sent once.
 inline constexpr uint32_t textRetryMs = 10000;

@@ -22,7 +22,7 @@ Firmwaretester (Linux/WSL eller Claude): `bash firmware/run_tests.sh`.
 ## Firmwareversioner
 
 - `v61-baseline` (git-tagg): stabil återställningspunkt, källa i `v61/firmware/` (ändras aldrig).
-- v66 och senare byggs som overlays: `python3 firmware/apps/prepare_apps.py /tmp/stackchan-vNN`, sedan PlatformIO där.
+- v66–v84 byggdes som overlays med `prepare_apps.py` (arkiverad i `firmware/history/`). Sedan v84 är `firmware/` ett vanligt källträd: ändra i `firmware/src/`, bygg med `pio run -d <kopia i /tmp>` eller via workflowet Bygg firmware.
 - Färdiga binärer ligger i `public/firmware/` och flashas från appens Firmware-flik.
 
 ## StackChan Command Hub

@@ -94,6 +94,6 @@ int main() {
  out.clear(); DeskApp::status(out); assert(out["weather_remaining_ms"]==0 && DeskApp::widgetVisible());
 }
 ''')
-    subprocess.run(["g++", "-std=c++17", "-I", str(tmp), "-I", str(ROOT / "apps"), "-I", str(ROOT / "src"), "-I", str(json_include), str(tmp / "test.cpp"), str(ROOT / "apps/DeskApp.cpp"), "-o", str(tmp / "test")], check=True)
+    subprocess.run(["g++", "-std=c++17", "-I", str(tmp), "-I", str(ROOT / "src"), "-I", str(json_include), str(tmp / "test.cpp"), str(ROOT / "src/DeskApp.cpp"), "-o", str(tmp / "test")], check=True)
     subprocess.run([str(tmp / "test")], check=True)
 print("Actual app handler: start/readback, invalid-input preservation, busy rejection, expiry, widget yield/resume and explicit stop, saved-app reboot/offline start, corrupt-file rejection and weather wall-clock expiry passed")

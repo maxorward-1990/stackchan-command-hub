@@ -9,4 +9,5 @@ bool active();
 bool hasPanel();
 void drawPanel(M5Canvas& canvas);
 void clear();
+bool drawApp(M5Canvas& canvas);
 }

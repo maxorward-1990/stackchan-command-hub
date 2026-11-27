@@ -1,3 +1,7 @@
+> **Arkiv.** Overlay-bygget nedan användes för v66–v84. Sedan 2026-11-27 byggs firmware direkt från
+> `firmware/` (se `firmware/README.md`). `prepare_apps.py` här kan bara köras från branchen `baseline-v84`,
+> där app-filerna fortfarande ligger i `firmware/apps/`.
+
 # App firmware experiments (v66–v71)
 
 Built from the immutable v61 source (exported to `v61/firmware/`, commit 80a1c00; the project has no git history) with `prepare_apps.py`, which asserts voice, WakeNet, personality, dialogue storage and partitions are byte-identical to v61. v61 remains the stable recommendation and restore target.

@@ -5,6 +5,8 @@
 #include "GeminiToolBridge.h"
 #include "ToolTogglePolicy.h"
 #include "TodoStore.h"
+#include "FocusApp.h"
+#include "DeskApp.h"
 #include "GeminiLiveProbe.h"
 #include "MemoryStore.h"
 #include <M5Unified.h>
@@ -69,6 +71,24 @@ String GeminiToolBridge::functionDeclarationsJson() {
   tdProps["id"]["type"] = "integer";
   tdProps["id"]["description"] = "Item id from list (preferred for complete/remove).";
   tdParams["required"].add("action");
+
+  auto timerTool = arr.add<JsonObject>();
+  timerTool["name"] = "control_timer";
+  timerTool["description"] = "Local countdown timer shown as a widget at the bottom of the robot screen. Use when the user asks to set, stop, pause, resume or check a timer ('sätt en timer på 2 minuter', 'hur lång tid är kvar?'). Works offline. The robot cannot play an alarm sound; never claim it will ring. If the user's whole request was only this timer command (no question or further task), confirm in one short sentence and also call end_session in the same turn so the widget shows at once; if they asked for anything more, keep listening.";
+  auto tmParams = timerTool["parameters"].to<JsonObject>();
+  tmParams["type"] = "object";
+  auto tmProps = tmParams["properties"].to<JsonObject>();
+  tmProps["action"]["type"] = "string";
+  for (const char* a : {"start", "stop", "pause", "resume", "status"}) tmProps["action"]["enum"].add(a);
+  tmProps["minutes"]["type"] = "integer";
+  tmProps["minutes"]["minimum"] = 0;
+  tmProps["minutes"]["maximum"] = 90;
+  tmProps["minutes"]["description"] = "Whole minutes for start; combine with seconds.";
+  tmProps["seconds"]["type"] = "integer";
+  tmProps["seconds"]["minimum"] = 0;
+  tmProps["seconds"]["maximum"] = 5400;
+  tmProps["seconds"]["description"] = "Seconds for start ('30 sekunder' -> 30, 'en halv minut' -> 30). Total 10 s to 90 min.";
+  tmParams["required"].add("action");
 
   auto searchMemory = arr.add<JsonObject>();
   searchMemory["name"] = "search_memory";
@@ -324,6 +344,12 @@ GeminiToolBridge::LocalStatus GeminiToolBridge::handleLocal(
   if (name == "manage_todos") {
     TodoStore::handle(args, response);
     return LocalStatus::Handled;
+  }
+  if (name == "control_timer") {
+    const bool start = !std::strcmp(args["action"] | "", "start");
+    const int code = FocusApp::voice(args, response);
+    if (code == 200 && start) DeskApp::stop();
+    return code == 200 ? LocalStatus::Handled : LocalStatus::Error;
   }
 
   if (name == "set_emotion") {

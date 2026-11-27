@@ -57,7 +57,6 @@ class MemoryStore {
   bool ensureDir(const String& path);
   bool appendJsonLine(const String& path, const String& line);
   bool compactDialoguesFile();
-  bool resetActiveDialoguesForV64();
   bool cleanupScaffoldMemoryRecords();
   bool pruneJsonlFieldEquals(const String& path, const char* field, const char* value);
   bool activeDialogueBounds(String& startTs, String& endTs, String& firstSession) const;

@@ -29,7 +29,4 @@ int main() {
   assert(LiveSessionPolicy::shouldRetryText(true, false, 11000, 1000));
   assert(!LiveSessionPolicy::shouldRetryText(true, true, 50000, 1000));
   assert(!LiveSessionPolicy::shouldRetryText(false, false, 50000, 1000));
-  // v65: manual voice turns time out at 10 s, text turns keep 30 s.
-  assert(LiveSessionPolicy::replyDeadline(true) == 10000);
-  assert(LiveSessionPolicy::replyDeadline(false) == 30000);
 }

@@ -16,7 +16,7 @@ assert prepare.index('WakeWord::stop()') < prepare.index('gemini.disconnect')
 assert 'client.setCACert(kTavilyRoots)' in search
 assert 'setInsecure' not in search
 assert 'if (WebResearch::busy())' in live.split('bool GeminiLiveProbe::connect()', 1)[1].split('void GeminiLiveProbe::disconnect', 1)[0]
-assert 'w.search = WebResearch::busy();' in main
+assert 'w.search = WebResearch::busy() || ' in main  # v75+: Tuya/Commons also block wake listening
 assert 'w.conversation = busy || gemini.isConnecting();' in main
 dispatch = live.split('void GeminiLiveProbe::loop()', 1)[1].split('drainWsEvents();', 1)[0]
 assert 'WebResearch::start(query)' in dispatch and 'buildSearchAnswer(result)' in dispatch

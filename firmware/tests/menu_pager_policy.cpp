@@ -1,4 +1,4 @@
-#include "../apps/MenuPagerPolicy.h"
+#include "../src/MenuPagerPolicy.h"
 #include <cassert>
 using namespace MenuPagerPolicy;
 int main() {

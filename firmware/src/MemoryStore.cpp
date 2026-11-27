@@ -1,5 +1,4 @@
 #include "MemoryStore.h"
-#include "DialogueResetPolicy.h"
 
 #include <ArduinoJson.h>
 #include <SD.h>
@@ -40,42 +39,11 @@ bool MemoryStore::begin(const Policy& policy) {
            ensureDir(_root + "/index");
 
   if (_ready) {
-    // User-approved reset of the active raw transcript, not facts or private memory.
-    // Archive before compaction, so the original records remain intact.
-    if (!resetActiveDialoguesForV64()) {
-      Serial.println("[MEMORY] v64 active dialogue archive failed; original retained, retry next boot");
-    }
     compactDialoguesFile();
     cleanupScaffoldMemoryRecords();
     appendEvent("system", String("memory_store_ready session=") + _sessionId, "state");
   }
   return _ready;
-}
-
-bool MemoryStore::resetActiveDialoguesForV64() {
-  const String marker = _root + "/index/v64-dialogue-reset.done";
-  if (_fs.exists(marker)) return true;
-  // A stable archive path also makes an interrupted rename/marker sequence retry-safe.
-  struct Store {
-    fs::FS& fs;
-    String source, backup, marker;
-    bool marked() { return fs.exists(marker); }
-    bool archived() { return fs.exists(backup); }
-    bool hasDialogue() { return fs.exists(source); }
-    bool archive() { return fs.rename(source, backup); }
-    bool mark() {
-      const String tmp = marker + ".tmp";
-      File f = fs.open(tmp, FILE_WRITE);
-      if (!f) return false;
-      const bool ok = f.print("v64\n") == 4;
-      f.close();
-      if (!ok) { fs.remove(tmp); return false; }
-      return fs.rename(tmp, marker);
-    }
-  } store{_fs, dialoguesPath(), _root + "/index/dialogues-pre-v64.jsonl", marker};
-  const bool ok = DialogueResetPolicy::archiveOnce(store);
-  if (ok) Serial.println("[MEMORY] v64 active dialogue reset once; original archived; facts/settings unchanged");
-  return ok;
 }
 
 bool MemoryStore::appendEvent(const char* role, const String& text, const char* type) {

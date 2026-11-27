@@ -1,29 +1,13 @@
-# StackChan Gemini — custom v63
+# StackChan Gemini — custom v84 (källträd)
 
-## v63 — usable proximity thresholds and honest light diagnostics
-- Datasheet-bounded LTR-553 configuration: PS_LED 0x7F (60 kHz, 100% duty WITHIN
-  each burst, 100 mA peak), 8 pulses/50 ms, x16 PS gain, saturation indicator enabled
-  in PS_CONTR 0x22. No continuous emitter, new task, allocation or synchronous wait.
-- Nonblocking 150 ms PS startup guard; unchanged clear-space rearm, touch/voice
-  actions, conflicts, cooldown, saturation rejection and 5-second I2C backoff.
-- Threshold range 5–2047, default 100 for new settings. Existing saved thresholds
-  (including 1800) are preserved, NOT silently migrated. v63 advertises its minimum
-  to Command Hub; v62 retains its 200 minimum. Read-only minimum never sent as an edit.
-- ALS retains x48 gain (the earlier assertion that it used low gain was incorrect),
-  increases integration/repeat from 50/100 ms to 200/200 ms. Status gain, invalid bit,
-  full-scale channels and startup window gate lux_estimate. als_avg remains raw counts.
-  Channel-ratio lux coefficients are normalized for gain/time with NO arbitrary
-  front-glass multiplier: uncalibrated estimate AT THE SENSOR, not room lux.
-- Personality → Läs sensorvärden reads through the existing /api/sensors transport,
-  on demand only; compare no-hand and close-hand raw readings, save a threshold
-  between them, then try 0.1–0.5 s and >=1 s gestures. No automated audio capture.
-- No changes to audio/network ownership, partitions, model or stored settings;
-  previous firmware remains available. Actual hand response and glass compensation
-  require physical measurements. Neither raw 14 nor light raw 8 proves calibration.
-- Register reference: https://xonstorage.z8.web.core.windows.net/pdf/4159089_LTR553ALSWA_link.pdf
-  (Lite-On DS86-2013-0005 pp.14–23); coefficient reference:
-  https://android.googlesource.com/kernel/msm.git/+/android-msm-bullhead-3.10-marshmallow-dr-0/drivers/input/misc/ltr553.c
-  (standard equation coefficients only; its phone-specific window factors are NOT used).
+Sedan 2026-11-27 är den här mappen firmwarekällan som byggs: v84, fryst fil för fil från
+`history/prepare_apps.py` (v61 + overlays v66–v84). Ändra direkt i `src/`, lägg tester i
+`tests/` och kör `bash firmware/run_tests.sh`. Bygg: kopiera mappen till t.ex.
+`/tmp/stackchan-build` och kör `PLATFORMIO_CORE_DIR=/tmp/stackchan-pio-core pio run -d /tmp/stackchan-build`
+(GitHub-workflowet Bygg firmware gör samma sak). Versionsnoteringar för v66–v84 finns i `history/`;
+avsnitten nedan är v61-källans ursprungliga noteringar.
+
+# StackChan Gemini — custom v61
 
 ## v61 — correlated host test capture and fresh clock reads
 - Command Hub Felsökning: permit local conversation-text collection, then Starta test

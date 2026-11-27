@@ -6,6 +6,9 @@
 #include <LittleFS.h>
 #include <esp_partition.h>
 #include "ScreenImage.h"
+#include "DeskApp.h"
+#include "FocusApp.h"
+#include "PomodoroPolicy.h"
 #include "WebResearch.h"
 #include "InternetVisual.h"
 #include "SmartHome.h"
@@ -17,7 +20,6 @@
 #include "AudioDiagnostics.h"
 #include "FirmwareVersion.h"
 #include "TalkTouchPolicy.h"
-#include "Proximity.h"
 #include "Personality.h"
 #include "WakeWord.h"
 #include "WakeWordPolicy.h"
@@ -310,6 +312,12 @@ void setup() {
     policy.maxEventFileBytes = sd_ok ? 256 * 1024 : 32 * 1024;
     policy.maxRetrievedChars = 3000;
     TodoStore::attach(storage);
+    DeskApp::attachStore(
+      [](const char* j) { File f = storage.open("/apps.json", "w"); if (!f) return false; const size_t n = std::strlen(j); const bool ok = f.write(reinterpret_cast<const uint8_t*>(j), n) == n; f.close(); return ok; },
+      [](char* b, size_t cap) -> size_t { File f = storage.open("/apps.json", "r"); if (!f) return size_t(0); const size_t sz = f.size(); if (sz > cap) { f.close(); return cap + 1; } const size_t n = f.read(reinterpret_cast<uint8_t*>(b), sz); f.close(); return n; });
+    FocusApp::attachStore(
+      [](const char* j) { File f = storage.open("/focus.json", "w"); if (!f) return false; const size_t n = std::strlen(j); const bool ok = f.write(reinterpret_cast<const uint8_t*>(j), n) == n; f.close(); return ok; },
+      [](char* b, size_t cap) -> size_t { File f = storage.open("/focus.json", "r"); if (!f) return size_t(0); const size_t sz = f.size(); if (sz > cap) { f.close(); return cap + 1; } const size_t n = f.read(reinterpret_cast<uint8_t*>(b), sz); f.close(); return n; });
     SmartHome::attachStorage(storage);
     Personality::begin(storage);
     bool memory_ok = memory.begin(policy);
@@ -549,13 +557,36 @@ static void setupMenuAndBluetooth() {
   h.api = [](bool post, const char* path, const String& body) { return routeApi(post, String(path), body); };
   h.getVolume = []() { return g_speaker_volume; };
   h.setVolume = [](uint8_t v) { g_speaker_volume = v; applySpeakerVolume(); };
-  h.onOpen = []() { gemini.stopConversation(); servoGestures.queueGesture("center_head"); };
+  h.onOpen = []() { DeskApp::stopFullscreen(); FocusApp::leaveFullscreen(); gemini.stopConversation(); servoGestures.queueGesture("center_head"); };
   h.onClose = []() { emotion.setEmotion("neutral"); emotion.forceRedraw(); g_last_human_activity_ms = millis(); };
   h.bleAtBoot = bleAtBoot;
   h.setBleAtBoot = setBleAtBoot;
   h.setBle = setBle;
   h.robotName = bleName();
   h.firmware = kFirmwareVersion;
+  h.appLabel = []() { return String(DeskApp::savedPlace()); };
+  h.appStart = [](bool full) {
+    const char* e = DeskApp::startSaved(full, std::time(nullptr));
+    if (!e) { FocusApp::stop(); ScreenImage::clear(); Serial.printf("Menu: app start %s\n", full ? "fullscreen" : "widget"); }
+    return String(e ? e : "");
+  };
+  h.focusLabel = []() {
+    if (!FocusApp::running()) return String(FocusApp::summary());
+    JsonDocument s; FocusApp::status(s);
+    const uint32_t sec = (s["remaining_ms"].as<uint32_t>() + 999) / 1000; char b[48];
+    if (FocusApp::simple()) { std::snprintf(b, sizeof b, "%s %02u:%02u", FocusApp::paused() ? "Pausad" : s["phase"] == "done" ? "Klart" : "Timer", unsigned(sec / 60), unsigned(sec % 60)); return String(b); }
+    std::snprintf(b, sizeof b, "%s %02u:%02u · pass %d/%d", FocusApp::paused() ? "Pausad" : s["phase"] == "break" ? "Paus" : s["phase"] == "done" ? "Klart" : "Fokus", unsigned(sec / 60), unsigned(sec % 60), s["round"].as<int>(), s["rounds"].as<int>());
+    return String(b);
+  };
+  h.focusAdjust = [](int dir) { FocusApp::adjustFocus(dir); Serial.printf("Menu: focus adjust %s\n", FocusApp::summary()); };
+  h.focusState = []() { return FocusApp::running() ? (FocusApp::paused() ? 2 : 1) : 0; };
+  h.focusAction = [](int a) {
+    if (a == 2) { FocusApp::togglePause(); return String(); }
+    if (a == 3) { FocusApp::stop(); Serial.println("Menu: focus stop"); return String(); }
+    const char* e = FocusApp::startSaved(a == 1);
+    if (!e) { DeskApp::stop(); ScreenImage::clear(); Serial.printf("Menu: focus start %s\n", a == 1 ? "fullscreen" : "widget"); }
+    return String(e ? e : "");
+  };
   TouchMenu::begin(h);
   if (bleAtBoot()) setBle(true);
 }
@@ -597,6 +628,10 @@ void loop() {
   static bool audioWasBusy = false;
   if (audioWasBusy && !AudioDiagnostics::busy()) emotion.setEmotion("neutral");
   audioWasBusy = AudioDiagnostics::busy();
+  const bool appWasFull = DeskApp::fullscreen() || FocusApp::fullscreen();
+  DeskApp::update(gemini.isReady() || gemini.isConnecting() || gemini.continuousConversation() || gemini.isRecording() || gemini.canInterrupt() || gemini.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy());
+  FocusApp::update(gemini.isReady() || gemini.isConnecting() || gemini.continuousConversation() || gemini.isRecording() || gemini.canInterrupt() || gemini.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy());
+  if (appWasFull && !DeskApp::fullscreen() && !FocusApp::fullscreen()) { emotion.forceRedraw(); g_last_human_activity_ms = millis(); }
   emotion.loop();
   { PerfMonitor::Scope timing(PerfMonitor::Services);
     servoGestures.loop();
@@ -666,6 +701,7 @@ void loop() {
     conv_was_active = conv_now;
     // v46: with the hold-menu turned off, an idle tap starts on touch-down (no release wait).
     if (screen_pressed && !last_screen_pressed &&
+        !(FocusApp::widgetVisible() && PomodoroPolicy::widgetTap(t.y)) &&
         PersonalityPolicy::startOnPress(Personality::get().touchMenu, conv_now || gemini.canInterrupt())) {
       Serial.printf("Display touch-down start x=%d y=%d\n", t.x, t.y);
       press_consumed = true;
@@ -701,6 +737,8 @@ void loop() {
         }
       } else if (idle && now - press_start_ms >= TalkTouchPolicy::holdThresholdMs(false)) {
         Serial.println("Display long press: ignored (idle, swipe up for menu)");
+      } else if (idle && FocusApp::widgetVisible() && PomodoroPolicy::widgetTap(press_y0)) {
+        FocusApp::stop(); emotion.forceRedraw(); Serial.println("Display tap: focus widget stop");
       } else {
         // Short tap = talk/interrupt.
         Serial.printf("Display tap x=%d y=%d\n", t.x, t.y);
@@ -710,22 +748,6 @@ void loop() {
   }
   last_screen_pressed = screen_pressed;
 #endif
-  // v62: hand events enter the same voice action dispatch as physical taps.
-  // Physical input wins; no gestures in camera/menu/diagnostics or servo motion.
-  const bool proximityAllowed = !touched && M5.Touch.getCount() == 0 &&
-      !TouchMenu::active() && !CameraStream::active() && !AudioDiagnostics::busy() &&
-      !servoGestures.active() && !M5StackChan.Motion.isMoving();
-  // v65: hand control paused for stability; the sensor is not polled for voice actions.
-  auto hand = Proximity::loop(false, proximityAllowed,
-                              Personality::get().proximityThreshold);
-  bool handHold = hand == ProximityPolicy::Event::Hold;
-  bool handTap = hand == ProximityPolicy::Event::Tap;
-  if (handHold || handTap) {
-    auto action = ProximityPolicy::action(handHold, gemini.continuousConversation(),
-                                         gemini.canInterrupt(), gemini.isRecording());
-    Serial.printf("[PROX] %s action=%u\n", handHold ? "hold" : "tap", unsigned(action));
-    touched = action != TalkTouchPolicy::Action::None;
-  }
   // v50: local wake word, only while idle and silent; a detection takes the display-tap path.
   bool woke = false;
   {
@@ -760,32 +782,34 @@ void loop() {
     w.recording = gemini.isRecording(); w.speaking = gemini.isSpeaking() || M5.Speaker.isPlaying();
     w.conversation = busy || gemini.isConnecting(); w.camera = CameraStream::active(); w.menu = TouchMenu::active();
     w.diagnostics = AudioDiagnostics::busy() || servoGestures.active() || M5StackChan.Motion.isMoving() || memoryGuard.pauseWake(guardNow);
-    w.search = WebResearch::busy();
+    w.search = WebResearch::busy() || SmartHome::busy() || InternetVisual::busy();
+    if (!WakeWord::listening() && heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) < 8192) w.search = true;  // Start-only I2S DMA guard
     uint32_t nowW = millis();
     if (wake_conv_end_ms) w.sinceConversationEndMs = nowW - wake_conv_end_ms;
     if (WakeWord::lastFailureMs()) w.sinceFailureMs = nowW - WakeWord::lastFailureMs();
     bool may = WakeWordPolicy::mayListen(w) && !touched;
     if (WakeWord::loop(may)) {
+      DeskApp::stopFullscreen(); FocusApp::leaveFullscreen();
       woke = true; touched = true;
       emotion.setEmotion("listening");
       Serial.println("[WAKE] starting conversation (same path as display tap)");
     }
   }
   if (TouchMenu::active()) touched = false;
-  if (gemini.consumeInterruptTouch() && !handHold) touched = false;
+  if (gemini.consumeInterruptTouch()) touched = false;
   if (AudioDiagnostics::busy()) touched = false;
   // While streaming, a tap on the robot ends the stream (physical privacy override).
   if (touched && CameraStream::active()) { CameraStream::requestStop(); touched = false; }
   if (touched) {
+    DeskApp::stopFullscreen(); FocusApp::leaveFullscreen();
     g_last_human_activity_ms = millis();
-    memory.appendEvent("user", woke ? "wake word" : (handTap || handHold) ? "hand gesture" : "touch pressed",
-                       woke ? "wake" : (handTap || handHold) ? "proximity" : "touch");
+    memory.appendEvent("user", woke ? "wake word" : "touch pressed", woke ? "wake" : "touch");
     ScreenImage::clear();
     using TalkTouchPolicy::Action;
-    Action tap = handHold ? Action::EndConversation : TalkTouchPolicy::onTap(gemini.continuousConversation(), gemini.canInterrupt(), gemini.isRecording(),
+    Action tap = TalkTouchPolicy::onTap(gemini.continuousConversation(), gemini.canInterrupt(), gemini.isRecording(),
                                         TalkTouchPolicy::heardSpeech(gemini.turnPeakRms()));
     if (tap == Action::EndConversation) {
-      Serial.println("[PROX] long hand hold: end conversation");
+      Serial.printf("[TUR] inget tal hort (peak_rms=%u) - avslutar\n", gemini.turnPeakRms());
       gemini.stopConversation();
       emotion.setEmotion("neutral");
       drawStatus("dialog off");
@@ -808,7 +832,7 @@ void loop() {
     }
   }
   now = millis();
-  if (!TouchMenu::active() && !CameraStream::active() && !gemini.isReady() && !gemini.isRecording() && !gemini.isSpeaking() &&
+  if (!DeskApp::fullscreen() && !FocusApp::fullscreen() && !TouchMenu::active() && !CameraStream::active() && !gemini.isReady() && !gemini.isRecording() && !gemini.isSpeaking() &&
       emotion.currentEmotion() == "neutral" && g_last_human_activity_ms &&
       PersonalityPolicy::sleepDue(Personality::get().sleepAfterS, now - g_last_human_activity_ms)) {
     Serial.println("Status: boot idle -> sleep");

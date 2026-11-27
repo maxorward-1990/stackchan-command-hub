@@ -1,4 +1,4 @@
-#include "../apps/PomodoroPolicy.h"
+#include "../src/PomodoroPolicy.h"
 #include <cassert>
 using namespace PomodoroPolicy;
 int main() {

@@ -1,4 +1,4 @@
-#include "../apps/DiagnosticModePolicy.h"
+#include "../src/DiagnosticModePolicy.h"
 #include <cassert>
 #include <cstdio>
 using namespace DiagnosticModePolicy;

@@ -1,4 +1,6 @@
 #include "ScreenImage.h"
+#include "DeskApp.h"
+#include "FocusApp.h"
 #include "DisplayPolicy.h"
 #include <M5StackChan.h>
 #include <vector>
@@ -7,10 +9,12 @@ static uint32_t until = 0;
 static uint32_t panelUntil = 0, panelStarted = 0;
 static std::vector<String> panel;
 bool active() { return until && static_cast<int32_t>(until - millis()) > 0; }
-bool hasPanel() { return panelUntil && static_cast<int32_t>(panelUntil - millis()) > 0 && !panel.empty(); }
+static bool textPanel() { return panelUntil && static_cast<int32_t>(panelUntil - millis()) > 0 && !panel.empty(); }
+bool hasPanel() { return textPanel() || DeskApp::widgetVisible() || FocusApp::widgetVisible(); }
+bool drawApp(M5Canvas& canvas) { return DeskApp::drawFullscreen(canvas) || FocusApp::drawFullscreen(canvas); }
 void clear() { until = panelUntil = 0; panel.clear(); }
 void drawPanel(M5Canvas& canvas) {
- if (!hasPanel()) return;
+ if (!textPanel()) { if (FocusApp::widgetVisible()) FocusApp::drawWidget(canvas); else DeskApp::drawWidget(canvas); return; }
  int top = canvas.height() - DisplayPolicy::panelHeight;
  canvas.fillRect(0, top, canvas.width(), DisplayPolicy::panelHeight, TFT_BLACK);
  canvas.drawFastHLine(8, top, canvas.width()-16, TFT_DARKCYAN);

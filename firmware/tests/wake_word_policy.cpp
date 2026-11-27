@@ -2,19 +2,6 @@
 #include <cassert>
 using namespace WakeWordPolicy;
 int main() {
-  assert(kDefaultMinPeak == 1500 && kDefaultThresholdMilli == 650);
-  assert(!acceptCandidate(446, 1500)); // recorded suspect candidate, not proof of silence
-  assert(!acceptCandidate(1500, 1500) && acceptCandidate(1501, 1500));
-  assert(validMinPeak(0) && validMinPeak(32767) && !validMinPeak(-1) && !validMinPeak(32768));
-  assert(validThresholdMilli(400) && validThresholdMilli(950));
-  assert(!validThresholdMilli(399) && !validThresholdMilli(951));
-  Evidence evidence;
-  assert(evidence.add(2000, 512) == 2000);
-  for (int i = 0; i < 20; ++i) assert(acceptCandidate(evidence.add(446, 512), 1500));
-  for (int i = 0; i < 12; ++i) evidence.add(446, 512);
-  assert(!acceptCandidate(evidence.add(446, 512), 1500));
-  evidence.add(3000, 512); evidence.reset();
-  assert(evidence.add(446, 512) == 446);
   assert(!hasExternalMemory(0));
   assert(hasExternalMemory(8 * 1024 * 1024));
   Inputs idle; idle.enabled = true; idle.modelReady = true;

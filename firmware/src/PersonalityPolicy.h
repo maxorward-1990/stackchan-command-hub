@@ -2,9 +2,9 @@
 // Pure, tested rules for owner-tunable robot personality (v46). Stored in /personality.json,
 // edited from Command Hub's Personality page and applied immediately, without reflashing.
 #include <cstdint>
+#include "WakeWordPolicy.h"
 #include <cstring>
 #include <cstddef>
-#include "WakeWordPolicy.h"
 
 namespace PersonalityPolicy {
 enum class LedKind : uint8_t { Default, Off, Solid, Pulse };
@@ -30,10 +30,7 @@ struct Settings {
   bool eyebrows = true;
   bool cheeks = true;
   bool wakeWord = false;         // v50: local "Hi Stack Chan" wake word while idle
-  uint16_t wakeMinPeak = WakeWordPolicy::kDefaultMinPeak;
   uint16_t wakeThresholdMilli = WakeWordPolicy::kDefaultThresholdMilli;
-  bool proximityControl = false; // v62: explicit opt-in, unchanged touch/wake defaults
-  uint16_t proximityThreshold = 100; // raw 11-bit reflection, NOT centimetres; saved values retained
   Led led[StateCount];
   uint32_t eye[StateCount] = {kNoColor, kNoColor, kNoColor, kNoColor, kNoColor, kNoColor, kNoColor};
 };

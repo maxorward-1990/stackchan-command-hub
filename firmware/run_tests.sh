@@ -27,7 +27,7 @@ cpp_tests() { # katalog etikett
   for t in "$d"/tests/*.cpp; do
     local n=$(basename "$t" .cpp) extra=""
     [ "$n" = servo_gesture_sequence ] && extra="$d/src/ServoGestureController.cpp"
-    if g++ -std=c++17 -I "$d/src" -I "$d/apps" -I "$d/tests/stubs" -I "$AJ" "$t" $extra -o "$out/$n" > "$out/$n.log" 2>&1 \
+    if g++ -std=c++17 -I "$d/src" -I "$d/tests/stubs" -I "$AJ" "$t" $extra -o "$out/$n" > "$out/$n.log" 2>&1 \
        && (cd "$out" && timeout 300 "./$n" >> "$out/$n.log" 2>&1); then ok "$label/$n"; else bad "$label/$n" "$out/$n.log"; fi
   done
 }
@@ -36,37 +36,25 @@ py_test() { # etikett katalog skript [arg...]
   if (cd "$d" && timeout 900 python3 "$s" "$@" > "$log" 2>&1); then ok "$label/$(basename "$s")"; else bad "$label/$(basename "$s")" "$log"; fi
 }
 
-echo "== 1. Repots firmware/ (kopia i $WORK/repo)"
-cp -r "$ROOT/firmware" $WORK/repo; rm -rf $WORK/repo/.pio; link_json $WORK/repo
-cpp_tests $WORK/repo repo
+echo "== 1. firmware/ (källan som byggs; kopia i $WORK/fw)"
+F=$WORK/fw
+cp -r "$ROOT/firmware" $F; rm -rf $F/.pio $F/history; link_json $F
+cpp_tests $F fw
+py_test fw $F tests/desk_app_runtime.py "$AJ"
+py_test fw $F tests/focus_app_runtime.py "$AJ"
+py_test fw $F tests/wake_dma_v76.py $F
+py_test fw $F tests/wake_threshold_v72.py $F
+py_test fw $F tests/personality_threshold_v72.py $F
+py_test fw $F tests/search_handoff_wiring.py
+py_test fw $F tests/live_setup_memory.py
+py_test fw $F tests/web_research_memory.py
+# tests/wake_word_lifecycle.py körs inte fristående mot firmware/: den testar den indragna v65-väckningen (toppvärdesspärr).
+# Dess fakes återanvänds av wake_threshold_v72/wake_dma_v76, och v61-versionen körs mot v61 nedan.
+# robot_v8_smoke.py kräver en fysisk robot och körs inte här.
 
-echo "== 2. Aktuell firmware förberedd från v61 med prepare_apps.py"
-STAGED=$WORK/staged
-if python3 "$ROOT/firmware/apps/prepare_apps.py" $STAGED > $WORK/prepare.log 2>&1; then ok "prepare_apps.py"; else bad "prepare_apps.py" $WORK/prepare.log; fi
-if [ -d $STAGED/src ]; then
-  link_json $STAGED
-  cpp_tests $STAGED staged
-  R=$WORK/repo
-  py_test repo $R tests/desk_app_runtime.py "$AJ"
-  py_test repo $R tests/focus_app_runtime.py "$AJ"
-  py_test repo $R tests/wake_dma_v76.py $STAGED
-  py_test repo $R tests/wake_threshold_v72.py $STAGED
-  py_test repo $R tests/personality_threshold_v72.py $STAGED
-  py_test repo $R tests/wake_word_lifecycle.py
-  py_test repo $R tests/proximity_io.py
-  py_test repo $R tests/search_handoff_wiring.py
-  py_test repo $R tests/live_setup_memory.py
-  py_test repo $R tests/web_research_memory.py
-  py_test staged $STAGED tests/live_setup_memory.py
-  py_test staged $STAGED tests/web_research_memory.py
-fi
-
-echo "== 3. v61-baslinjen (kopia)"
+echo "== 2. v61-baslinjen (kopia, oförändrad referens)"
 cp -r "$ROOT/v61/firmware" $WORK/v61; link_json $WORK/v61
 for s in wake_word_lifecycle search_handoff_wiring live_setup_memory web_research_memory; do py_test v61 $WORK/v61 tests/$s.py; done
-# v61:s wake_word_lifecycle/search_handoff_wiring körs inte mot den förberedda källan: v76+ ändrar avsiktligt
-# WakeWord.cpp och raden w.search; de ersätts av wake_threshold_v72/wake_dma_v76 ovan.
-# robot_v8_smoke.py kräver en fysisk robot och körs inte här.
 
 echo
 echo "Resultat: $pass godkända, $fail fel   (loggar: $WORK)"

@@ -3,6 +3,9 @@
 #if defined(ENABLE_CAMERA)
 #include <M5Unified.h>
 #include <esp_camera.h>
+#include <esp_heap_caps.h>
+#include "AudioDiagnostics.h"
+static bool s_micClockBorrowed = false;  // v79: mic started only to clock the camera
 #include <img_converters.h>
 #include <cstring>
 #include <cstdlib>
@@ -47,13 +50,26 @@ bool CameraCapture::initHardware_() {
   // board camera object. This Arduino probe keeps esp_camera lifetime short:
   // init only for smoke capture, then deinit, so voice/audio is not forced to
   // coexist with an always-on camera driver.
+  // v79: the camera clock comes from the codec MCLK (GPIO0), which only runs while the mic is active.
+  s_micClockBorrowed = false;
+  if (!M5.Mic.isRunning() && !M5.Speaker.isPlaying() && !AudioDiagnostics::busy()) {
+    if (M5.Speaker.isRunning()) M5.Speaker.end();
+    s_micClockBorrowed = M5.Mic.begin();
+  }
+  Serial.printf("[CAMERA] clock mic_running=%d borrowed=%d\n", M5.Mic.isRunning(), s_micClockBorrowed);
   M5.In_I2C.release();
+  esp_camera_set_psram_mode(true);  // v78: DMA into the PSRAM frame buffer, no 30 KiB internal block
+  Serial.printf("[CAMERA] init psram_dma=%d internal_largest=%u dma_largest=%u psram_free=%u\n", esp_camera_get_psram_mode(),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA), (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   esp_err_t err = esp_camera_init(&kCameraConfig);
   if (err != ESP_OK) {
     ready_ = false;
     hardware_active_ = false;
     last_error_ = String("esp_camera_init_failed:") + String(static_cast<int>(err));
     Serial.printf("Camera: init failed err=%d\n", static_cast<int>(err));
+    M5.In_I2C.begin();  // v79: init failure left the internal I2C bus released (LEDs, codec)
+    if (s_micClockBorrowed) { M5.Mic.end(); s_micClockBorrowed = false; }
     return false;
   }
   sensor_t* sensor = esp_camera_sensor_get();
@@ -83,6 +99,7 @@ void CameraCapture::deinitHardware_() {
     // logically while the physical camera-assist white LEDs remain latched.
     bool i2cRestored = M5.In_I2C.begin();
     Serial.printf("Camera: hardware deinit; In_I2C restore=%s\n", i2cRestored ? "ok" : "failed");
+    if (s_micClockBorrowed) { M5.Mic.end(); s_micClockBorrowed = false; Serial.println("[CAMERA] mic clock returned"); }
   }
 #endif
 }
@@ -124,6 +141,7 @@ bool CameraCapture::captureJpegInternal_(uint8_t** out, size_t* len) {
 
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
+    Serial.printf("[CAMERA] no frame mic_running=%d borrowed=%d\n", M5.Mic.isRunning(), s_micClockBorrowed);
     deinitHardware_();
     return false;
   }
