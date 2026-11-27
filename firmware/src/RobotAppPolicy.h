@@ -12,6 +12,7 @@ namespace RobotAppPolicy {
 constexpr int kMaxApps = 16, kMaxTriggers = 4, kMaxSteps = 20, kMaxImages = 6;
 constexpr size_t kMaxJsonBytes = 16384, kMaxImageBytes = 65536, kMaxTotalBytes = 1024 * 1024;
 constexpr size_t kIdMax = 40, kNameMax = 120, kPhraseMax = 180, kTextMax = 600, kPromptMax = 1200, kTodoMax = 360, kTargetMax = 120;
+constexpr size_t kOverlayTextMax = 120;
 constexpr size_t kChunkBase64Max = 4096;  // one upload request; fits the 6144-byte USB api line
 
 inline bool validId(const char* id) {
@@ -109,6 +110,21 @@ inline bool validStep(JsonVariantConst a, const char* appId, int index) {
   if (!std::strcmp(k, "photo")) return a["show"].isNull() || a["show"].is<bool>();
   if (!std::strcmp(k, "describe")) return boundedText(a["prompt"], kPromptMax);
   if (!std::strcmp(k, "sound")) return oneOf(a["sound"] | "", {"beep", "double", "rising", "falling"});
+  if (!std::strcmp(k, "overlay")) {  // v88: symbol and/or short text over the face
+    const char* s = a["symbol"] | "";
+    const bool text = !a["text"].isNull();
+    if (!oneOf(s, {"heart", "star", "question", "exclaim", "zzz", "note", "none"}) || !numberIn(a["seconds"], 0.5, 60)) return false;
+    if (text && !boundedText(a["text"], kOverlayTextMax)) return false;
+    return std::strcmp(s, "none") || text;
+  }
+  if (!std::strcmp(k, "wait_for")) {  // v88: pause until something happens, at most `seconds`
+    const char* e = a["event"] | "";
+    if (!oneOf(e, {"head_touch", "knock", "lifted", "put_down", "tipped", "near", "light", "power_on", "power_off"})) return false;
+    if (!intIn(a["seconds"], 1, 600) || !oneOf(a["otherwise"] | "", {"stop", "continue"})) return false;
+    if (!std::strcmp(e, "near")) return intIn(a["threshold"], 1, 2047);
+    if (!std::strcmp(e, "light")) return oneOf(a["when"] | "", {"dark", "bright"}) && intIn(a["threshold"], 0, 65535);
+    return true;
+  }
   if (!std::strcmp(k, "led")) return oneOf(a["mode"] | "", {"solid", "pulse", "rainbow", "off", "auto"}) && hexColor(a["color"]);
   if (!std::strcmp(k, "emotion")) return oneOf(a["emotion"] | "", {"neutral", "happy", "angry", "looking", "sleep"});
   if (!std::strcmp(k, "gesture")) return validGesture(a["gesture"] | "");
@@ -140,8 +156,12 @@ inline bool withPrevious(JsonVariantConst a, int index) { return index > 0 && (a
 /** At most one motion, one speech/conversation and one screen step per group (one head, one voice, one screen). */
 inline bool groupsValid(JsonArrayConst steps) {
   int motion = 0, speech = 0, screen = 0, i = 0;
+  bool waitGroup = false;
   for (JsonVariantConst a : steps) {
-    if (!withPrevious(a, i)) motion = speech = screen = 0;
+    const bool waitFor = !std::strcmp(a["kind"] | "", "wait_for");
+    if (!withPrevious(a, i)) { motion = speech = screen = 0; waitGroup = false; }
+    else if (waitFor || waitGroup) return false;  // v88: "vänta på" stands alone
+    waitGroup = waitGroup || waitFor;
     switch (roleOf(a["kind"] | "")) {
       case Role::Motion: if (++motion > 1) return false; break;
       case Role::Speech: if (++speech > 1) return false; break;

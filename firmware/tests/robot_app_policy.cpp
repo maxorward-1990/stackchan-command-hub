@@ -36,6 +36,11 @@ struct FakeEnv : RobotAppPlayer::Env {
   bool startConversation() override { calls.push_back("listen"); ++convoStarts; return true; }
   bool conversationActive() override { return convo; }
   uint32_t playSound(const char* n) override { calls.push_back(std::string("sound ") + n); return 600; }
+  bool fired = false; std::string armed;
+  bool overlay(const char* s, const char* t, uint32_t ms) override { calls.push_back(std::string("overlay ") + s + " " + t + " " + std::to_string(ms)); return true; }
+  void armEvent(const char* e, uint32_t th, bool dark) override { armed = std::string(e) + ":" + std::to_string(th) + (dark ? ":dark" : ""); calls.push_back("arm " + armed); }
+  bool eventFired() override { return fired; }
+  void disarmEvent() override { armed.clear(); }
 };
 static void run(RobotAppPlayer::Player& p, FakeEnv& e, uint32_t ms, uint32_t step = 100) { for (uint32_t i = 0; i < ms; i += step) { p.tick(e); e.t += step; } }
 
@@ -139,5 +144,23 @@ int main() {
   assert(!conflict(R"([{"kind":"gesture","gesture":"nod_yes"},{"kind":"look","pan":0,"tilt":0}])"));
   { JsonDocument d; deserializeJson(d, kDisco); d["actions"][0]["with_previous"] = "ja"; assert(validate(d.as<JsonVariantConst>())); }
   { JsonDocument d; deserializeJson(d, kDisco); d["actions"][0]["kind"] = "sound"; d["actions"][0]["sound"] = "siren"; assert(validate(d.as<JsonVariantConst>())); }
+  // v88: "vänta på" continues when the event happens, ends the app quietly on timeout (or continues), overlay step.
+  JsonDocument w; deserializeJson(w, R"({"id":"w","name":"Retas","enabled":true,"cooldown_s":0,"triggers":[{"kind":"head_touch"}],
+    "actions":[{"kind":"speak","text":"Vad gör du?"},{"kind":"wait_for","event":"tipped","seconds":20,"otherwise":"stop"},
+               {"kind":"overlay","symbol":"heart","text":"Din idiot!","seconds":3},{"kind":"wait_for","event":"near","threshold":10,"seconds":5,"otherwise":"continue"},{"kind":"clear"}]})");
+  assert(validate(w.as<JsonVariantConst>()) == nullptr);
+  FakeEnv ew; RobotAppPlayer::Player pw; pw.start(w["actions"].as<JsonArrayConst>(), "Retas");
+  run(pw, ew, 200); ew.speakingNow = true; run(pw, ew, 500); ew.speakingNow = false; run(pw, ew, 1800);
+  assert(ew.armed == "tipped:0:dark" && pw.waitingForEvent());
+  run(pw, ew, 5000); assert(ew.calls.back() == "arm tipped:0:dark");          // still waiting
+  ew.fired = true; run(pw, ew, 200); ew.fired = false; run(pw, ew, 200);
+  assert(ew.calls[ew.calls.size() - 2] == "overlay heart Din idiot! 3000" && ew.calls.back() == "arm near:10:dark");
+  run(pw, ew, 5300); assert(ew.calls.back() == "clear" && !pw.running() && !*pw.error());  // timeout + continue
+  FakeEnv et; RobotAppPlayer::Player pt; pt.start(w["actions"].as<JsonArrayConst>(), "Retas");
+  run(pt, et, 200); et.speakingNow = true; run(pt, et, 500); et.speakingNow = false; run(pt, et, 22000);
+  assert(!pt.running() && !*pt.error() && et.calls.back() == "arm tipped:0:dark" && et.armed.empty());  // timeout + stop: ends quietly
+  assert(conflict(R"([{"kind":"clear"},{"kind":"wait_for","event":"knock","seconds":5,"otherwise":"stop","with_previous":true}])"));
+  assert(conflict(R"([{"kind":"wait_for","event":"knock","seconds":5,"otherwise":"stop"},{"kind":"clear","with_previous":true}])"));
+  { JsonDocument d; deserializeJson(d, kDisco); d["actions"][0]["kind"] = "overlay"; d["actions"][0]["symbol"] = "none"; d["actions"][0]["seconds"] = 2; d["actions"][0].remove("mode"); assert(validate(d.as<JsonVariantConst>())); }
   std::puts("robot app policy/player: ok");
 }

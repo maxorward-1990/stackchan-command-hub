@@ -7,7 +7,7 @@ import {
 describe("robot app format", () => {
   it("every default trigger/action except an empty image is valid", () => {
     const triggers: TriggerKind[] = ["button", "time", "says", "near", "light", "head_touch", "lifted", "put_down", "tipped", "knock", "battery_low", "power_on", "power_off"];
-    const actions: ActionKind[] = ["led", "emotion", "gesture", "look", "text", "clear", "speak", "ask", "todo", "timer", "wait", "stop_talk", "reset", "photo", "describe", "listen", "sound"];
+    const actions: ActionKind[] = ["led", "emotion", "gesture", "look", "text", "clear", "speak", "ask", "todo", "timer", "wait", "stop_talk", "reset", "photo", "describe", "listen", "sound", "overlay", "wait_for"];
     for (const t of triggers) for (const a of actions) expect(appProblem({ ...EXAMPLE_APP, triggers: [defaultTrigger(t)], actions: [defaultAction(a)] })).toBeNull();
     expect(appProblem({ ...EXAMPLE_APP, actions: [defaultAction("image")] })).toMatch(/välj en bild/);
     expect(appProblem({ ...EXAMPLE_APP, actions: [defaultAction("lights")] })).toMatch(/Steg 1/);
@@ -144,5 +144,15 @@ describe("v87 groups (samtidigt)", () => {
     release();
     expect(await p).toEqual({ ok: true, done: 3 });
     expect(order.at(-1)).toBe("end clear");
+  });
+});
+
+describe("v88 overlay and wait_for", () => {
+  it("keeps 'vänta på' alone and requires usable settings", () => {
+    expect(groupProblem([{ kind: "clear" }, { kind: "wait_for", event: "knock", seconds: 5, otherwise: "stop", with_previous: true }])).toMatch(/Vänta på/);
+    expect(groupProblem([{ kind: "wait_for", event: "near", seconds: 5, otherwise: "stop" }])).toMatch(/närhetsvärde/);
+    expect(groupProblem([{ kind: "overlay", symbol: "none", seconds: 2 }])).toMatch(/symbol eller/);
+    expect(groupProblem([{ kind: "speak", text: "Vad gör du?" }, { kind: "wait_for", event: "tipped", seconds: 20, otherwise: "stop" },
+      { kind: "overlay", symbol: "heart", text: "Din idiot!", seconds: 3 }, { kind: "speak", text: "Din idiot!", with_previous: true }])).toBeNull();
   });
 });

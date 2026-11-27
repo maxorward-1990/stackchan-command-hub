@@ -58,6 +58,10 @@ export const actionSchema = z.discriminatedUnion("kind", [
   step({ kind: z.literal("describe"), prompt: text(400) }),
   step({ kind: z.literal("listen") }),
   step({ kind: z.literal("sound"), sound: z.enum(["beep", "double", "rising", "falling"]) }),
+  // v88 (robot only)
+  step({ kind: z.literal("overlay"), symbol: z.enum(["heart", "star", "question", "exclaim", "zzz", "note", "none"]), text: z.string().trim().max(40).optional(), seconds: z.number().min(0.5).max(60) }),
+  step({ kind: z.literal("wait_for"), event: z.enum(["head_touch", "knock", "lifted", "put_down", "tipped", "near", "light", "power_on", "power_off"]),
+    seconds: z.number().int().min(1).max(600), otherwise: z.enum(["stop", "continue"]), threshold: z.number().int().min(0).max(65535).optional(), when: z.enum(["dark", "bright"]).optional() }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 export type ActionKind = Action["kind"];
@@ -83,11 +87,15 @@ export const ACTION_LABELS: Record<ActionKind, string> = {
   clear: "Rensa skärmen", speak: "Säg en mening", ask: "Fråga Gemini", lights: "Lampor (Smart Life)", todo: "Lägg till att-göra",
   timer: "Starta timer", wait: "Vänta", stop_talk: "Avsluta samtal", reset: "Återställ roboten",
   photo: "Ta en bild", describe: "Titta och berätta (kamera)", listen: "Starta samtal (roboten lyssnar)", sound: "Spela ljud",
+  overlay: "Visa över ansiktet", wait_for: "Vänta på …",
 };
+export const SYMBOL_CHOICES = [["heart", "Hjärta"], ["star", "Stjärna"], ["question", "Frågetecken"], ["exclaim", "Utropstecken"], ["zzz", "Zzz"], ["note", "Not"], ["none", "Ingen symbol (bara text)"]] as const;
+export const WAIT_EVENTS = [["head_touch", "någon rör huvudet"], ["knock", "någon knackar"], ["lifted", "roboten lyfts upp"], ["put_down", "roboten ställs ner"], ["tipped", "roboten välter"],
+  ["near", "något är nära"], ["light", "det blir mörkt/ljust"], ["power_on", "laddaren ansluts"], ["power_off", "laddaren kopplas ur"]] as const;
 export const SOUND_CHOICES = [["beep", "Pip"], ["double", "Dubbelpip"], ["rising", "Stigande"], ["falling", "Fallande"]] as const;
 /** Work only when the app runs on the robot (firmware v87+), not when tried from Command Hub. */
 export const ROBOT_ONLY_TRIGGERS: TriggerKind[] = ["lifted", "put_down", "tipped", "knock", "battery_low", "power_on", "power_off"];
-export const ROBOT_ONLY_ACTIONS: ActionKind[] = ["photo", "sound"];
+export const ROBOT_ONLY_ACTIONS: ActionKind[] = ["photo", "sound", "overlay", "wait_for"];
 export type Role = "motion" | "speech" | "screen" | "other";
 export function roleOf(kind: ActionKind): Role {
   if (kind === "gesture" || kind === "look") return "motion";
@@ -105,6 +113,11 @@ export function groupsOf(actions: Action[]): Action[][] {
 export function groupProblem(actions: Action[]): string | null {
   let index = 0;
   for (const g of groupsOf(actions)) {
+    if (g.length > 1 && g.some(a => a.kind === "wait_for")) return `Steg ${index + 1}–${index + g.length}: "Vänta på …" kan inte köras samtidigt med andra steg.`;
+    for (const a of g) {
+      if (a.kind === "wait_for" && a.event === "near" && !a.threshold) return `Steg ${actions.indexOf(a) + 1}: ange ett närhetsvärde (t.ex. 10).`;
+      if (a.kind === "overlay" && a.symbol === "none" && !a.text) return `Steg ${actions.indexOf(a) + 1}: välj en symbol eller skriv en text.`;
+    }
     for (const role of ["motion", "speech", "screen"] as const) {
       if (g.filter(a => roleOf(a.kind) === role).length > 1)
         return `Steg ${index + 1}–${index + g.length} körs samtidigt men har ${role === "motion" ? "två rörelser" : role === "speech" ? "två tal-/samtalssteg" : "två saker på skärmen"} – högst en av varje åt gången.`;
@@ -148,6 +161,8 @@ export function defaultAction(kind: ActionKind): Action {
     case "describe": return { kind, prompt: "Vad ser du framför dig?" };
     case "listen": return { kind };
     case "sound": return { kind, sound: "beep" };
+    case "overlay": return { kind, symbol: "heart", seconds: 3 };
+    case "wait_for": return { kind, event: "tipped", seconds: 20, otherwise: "stop" };
   }
 }
 

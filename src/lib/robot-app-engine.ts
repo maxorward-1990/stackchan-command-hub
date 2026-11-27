@@ -76,7 +76,7 @@ export async function executeAction(a: Action, signal: AbortSignal = new AbortCo
     case "speak": await robot.say(speakInstruction(a.text)); await waitForSpeech(geminiSpeaking, signal); return;
     case "describe": await robot.say(describeInstruction(a.prompt)); await waitForSpeech(geminiSpeaking, signal); return;
     case "listen": await robot.listen(); return;
-    case "photo": case "sound": throw new Error(`"${ACTION_LABELS[a.kind]}" fungerar bara när appen körs på roboten (v87) – skicka appen och kör den där.`);
+    case "photo": case "sound": case "overlay": case "wait_for": throw new Error(`"${ACTION_LABELS[a.kind]}" fungerar bara när appen körs på roboten (v87) – skicka appen och kör den där.`);
     case "ask": await robot.say(a.prompt); await waitForSpeech(geminiSpeaking, signal); return;
     case "lights": await homeAction(a.action, a.target); return;
     case "todo": { const r = await robot.todos({ action: "add", text: a.text }); if (!r.ok) throw new Error(r.error || "Att-göra kunde inte sparas."); return; }

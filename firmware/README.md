@@ -7,6 +7,12 @@ Sedan 2026-11-27 är den här mappen firmwarekällan som byggs: v84, fryst fil f
 (GitHub-workflowet Bygg firmware gör samma sak). Versionsnoteringar för v66–v84 finns i `history/`;
 avsnitten nedan är v61-källans ursprungliga noteringar.
 
+## v88 — röstkommandon till appar, symbol över ansiktet, "vänta på"
+- Gemini får appens fraser ("om användaren säger …") och startar appen direkt när en begäran passar, t.ex. "ta en bild", utan "starta appen" och före sina egna verktyg.
+- Nytt steg **Visa över ansiktet**: hjärta, stjärna, ?, !, Zzz eller not och/eller en kort text ovanpå ansiktet i N sekunder.
+- Nytt steg **Vänta på …**: appen pausar tills något händer (huvudtryck, knack, lyft, ställs ner, välter, närhet, mörkt/ljust, laddare), högst N sekunder; annars avslutas appen eller fortsätter. Exempel: rör huvudet → "Vad gör du?" → vänta på välter → "Din idiot!".
+- En app stänger sin egen Gemini-anslutning när den är klar (v87 visade lågt internminne med vilande anslutning + väckningsord).
+
 ## v87 — samtidiga steg, kamera, ljud och fler villkor
 - Steg kan köras **samtidigt** med steget före (en rörelse, ett tal och en skärmsak per grupp); en dans i samma grupp som tal startar när roboten börjar prata. Tal-steg ber Gemini att inte anropa verktyg (v86: Gemini dansade själv).
 - Nya steg: Ta en bild (sparas, visas; senaste 20 på roboten och alla på SD-kortet), Titta och berätta (kamera via Gemini), Starta samtal, Spela ljud (pip, dubbelpip, stigande, fallande).

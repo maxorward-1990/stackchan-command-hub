@@ -23,6 +23,7 @@
 #include "CameraCapture.h"
 #include "SensorMonitor.h"
 #include "WakeWord.h"
+#include "FaceOverlay.h"
 #include <algorithm>
 #include <cmath>
 
@@ -207,6 +208,18 @@ uint32_t synth(const char* name) {
   return static_cast<uint32_t>(n * 1000 / kRate);
 }
 
+// ---- v88 "vänta på": one armed event while an app waits ----
+struct Waiting { bool on = false, fired = false, dark = true; Trig kind = Trig::Button; uint32_t threshold = 0; int8_t plugged = -1; } g_wait;
+bool g_appTalked = false;  // the app opened a Gemini session (closed again when the app ends)
+int8_t pluggedNow() {
+  const char* st = SensorMonitor::batteryState();
+  if (!std::strcmp(st, "unknown")) return -1;
+  return !std::strcmp(st, "charging") || !std::strcmp(st, "usb");
+}
+void eventHappened(Trig kind) {
+  if (g_wait.on && !g_wait.fired && g_wait.kind == kind) { g_wait.fired = true; Serial.printf("[APP] event %s\n", kTrigNames[static_cast<int>(kind)]); }
+}
+
 // ---- Hardware behind the pure player ----
 struct DeviceEnv : RobotAppPlayer::Env {
   uint32_t now() override { return millis(); }
@@ -224,7 +237,7 @@ struct DeviceEnv : RobotAppPlayer::Env {
     return ok;
   }
   void clearScreen() override { ScreenImage::clear(); ::emotion.forceRedraw(); }
-  bool requestText(const char* text) override { return gemini.requestTextTurn(String(text)); }
+  bool requestText(const char* text) override { g_appTalked = true; return gemini.requestTextTurn(String(text)); }
   bool speaking() override { return gemini.isSpeaking() || M5.Speaker.isPlaying(); }
   bool speechIdle() override { return !gemini.isConnecting() && !gemini.canInterrupt() && !gemini.toolPending(); }
   bool lightsStart(const char* action, const char* target) override {
@@ -270,7 +283,37 @@ struct DeviceEnv : RobotAppPlayer::Env {
     if (!M5.Speaker.playRaw(g_pcm, samples, kRate, false, 1, 0)) return 0;
     return ms + 150;
   }
+  bool overlay(const char* symbol, const char* text, uint32_t ms) override {
+    if (!FaceOverlay::validSymbol(symbol)) return false;
+    FaceOverlay::set(symbol, text, ms); ::emotion.forceRedraw();
+    return true;
+  }
+  void armEvent(const char* event, uint32_t threshold, bool dark) override {
+    g_wait = Waiting{};
+    for (int n = 0; n < static_cast<int>(sizeof kTrigNames / sizeof kTrigNames[0]); ++n) if (!std::strcmp(event, kTrigNames[n])) g_wait.kind = static_cast<Trig>(n);
+    g_wait.on = g_wait.kind != Trig::Button; g_wait.threshold = threshold; g_wait.dark = dark; g_wait.plugged = pluggedNow();
+    Serial.printf("[APP] waiting for %s\n", event);
+  }
+  bool eventFired() override { return g_wait.fired; }
+  void disarmEvent() override { g_wait = Waiting{}; }
 } g_env;
+
+/** While an app waits: near/light are level checks (already dark counts), power is an edge. */
+void pollWaiting() {
+  static uint32_t last = 0;
+  if (!g_wait.on || g_wait.fired || millis() - last < 200) return;
+  last = millis();
+  if (g_wait.kind == Trig::Near || g_wait.kind == Trig::Light) {
+    uint32_t ps = 0, als = 0;
+    if (CameraStream::active() || !robotAppsReadLtr553(ps, als)) return;
+    TriggerMeta t; t.kind = g_wait.kind; t.threshold = g_wait.threshold; t.dark = g_wait.dark;
+    if (sensorActive(t, ps, als)) eventHappened(g_wait.kind);
+  } else if (g_wait.kind == Trig::PowerOn || g_wait.kind == Trig::PowerOff) {
+    const int8_t p = pluggedNow();
+    if (p >= 0 && g_wait.plugged >= 0 && p != g_wait.plugged) eventHappened(p ? Trig::PowerOn : Trig::PowerOff);
+    if (p >= 0) g_wait.plugged = p;
+  }
+}
 
 void beginRun(int index) {
   g_pending = Pending{};
@@ -468,9 +511,15 @@ void begin(fs::FS& storage, bool sdIsStorage) {
 
 void loop(bool busy) {
   if (!g_meta) return;
+  if (FaceOverlay::expired()) emotion.forceRedraw();
   if (g_player.running()) {
+    pollWaiting();
     g_player.tick(g_env);
     if (!g_player.running()) {
+      g_wait = Waiting{};
+      // v88: an app's own Gemini session is not kept warm: TLS + WakeNet together left ~8 KiB largest block on v87.
+      if (g_appTalked && gemini.warmIdle()) { gemini.disconnect(true); Serial.println("[APP] closed the app's Gemini session"); }
+      g_appTalked = false;
       g_lastError = g_player.error();
       Serial.printf("[APP] %s \"%s\"%s%s\n", g_lastError.length() ? "stopped" : "done", g_player.name(), g_lastError.length() ? ": " : "", g_lastError.c_str());
       if (g_lastError.length()) g_lastError = String(g_player.name()) + ": " + g_lastError;
@@ -508,6 +557,7 @@ void stop() {
   if (g_player.running()) { g_player.stop(); g_lastError = ""; Serial.printf("[APP] stopped \"%s\"\n", g_player.name()); if (g_run) g_run->clear(); }
 }
 void resetLook() {
+  FaceOverlay::clear();
   emotion.setLedOverride("auto", 0, 0, 0);
   ScreenImage::clear();
   emotion.setEmotion("neutral");
@@ -536,11 +586,17 @@ void onUserWords(const char* fragment) {
 bool onHeadTouch() {
   Serial.println("[APP] head touch");
   if (!g_meta) return false;
+  if (g_player.waitingForEvent() && g_wait.kind == Trig::HeadTouch) { eventHappened(Trig::HeadTouch); return true; }
   // v87: while an app wants head touch it owns every touch, also during its run, start or cooldown (v86 started a conversation).
   return fireKind(Trig::HeadTouch, "huvudet");
 }
 void onMotion(const char* motion) {
   if (!g_meta || !motion) return;
+  if (g_player.waitingForEvent()) {  // v88: an app waiting for this event gets it instead of starting another app
+    const Trig k = !std::strcmp(motion, "tap") ? Trig::Knock : !std::strcmp(motion, "lifted") ? Trig::Lifted : !std::strcmp(motion, "tipped") ? Trig::Tipped : Trig::PutDown;
+    eventHappened(k);
+    return;
+  }
   if (!std::strcmp(motion, "tap")) fireKind(Trig::Knock, "knackning");
   else if (!std::strcmp(motion, "lifted")) fireKind(Trig::Lifted, "lyft");
   else if (!std::strcmp(motion, "tipped")) fireKind(Trig::Tipped, "vält");
@@ -669,10 +725,20 @@ int handle(JsonVariantConst in, JsonDocument& out) {
 
 bool toolDeclared() { return g_meta && g_count > 0; }
 String toolDescription() {
-  String d = "Start or stop one of the owner's own robot apps stored on this robot (sequences of lights, faces, gestures, screen and speech). "
-             "Use when the user asks to start/run/open an app by name ('starta appen Disco', 'kör godnatt') or to stop the running app. "
+  String d = "Start or stop one of the owner's own robot apps stored on this robot (sequences of lights, faces, gestures, camera, screen and speech). "
+             "Use when the user asks to start/run/open an app by name ('starta appen Disco'), to stop the running app, or when the request matches "
+             "an app's phrase listed below - then call start_app directly, even without the word app, and prefer it over your other tools "
+             "(for example over look_with_camera when the phrase is about taking a picture). "
              "The app starts when this conversation ends: confirm in one short sentence and also call end_session in the same turn. Known apps: ";
-  for (int i = 0; i < g_count; ++i) { if (i) d += ", "; d += g_meta[i].name; }
+  for (int i = 0; i < g_count; ++i) {
+    if (i) d += "; ";
+    d += g_meta[i].name;
+    String phrases;
+    for (int k = 0; k < g_meta[i].triggerCount; ++k)
+      if (g_meta[i].enabled && g_meta[i].t[k].kind == Trig::Says) { if (phrases.length()) phrases += "', '"; phrases += g_meta[i].t[k].phrase; }
+    if (phrases.length()) d += " (when the user says something like '" + phrases + "')";
+    if (d.length() > 1800) { d += "; …"; break; }  // keep the Live setup packet bounded (LiveSetupPolicy)
+  }
   return d + ".";
 }
 int toolCall(JsonVariantConst args, JsonDocument& out) {

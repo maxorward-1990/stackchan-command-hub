@@ -1,5 +1,6 @@
 #include "TouchMenu.h"
 #include "EmotionController.h"
+#include "FaceOverlay.h"
 
 #include <M5StackChan.h>
 #include <M5Unified.h>
@@ -464,6 +465,7 @@ void EmotionController::renderFace() {
     }
   }
   ScreenImage::drawPanel(canvas);
+  FaceOverlay::draw(canvas);  // v88 app overlay (heart, text …)
   canvas.pushSprite(&display, 0, 0);
 }
 

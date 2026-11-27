@@ -11,7 +11,7 @@ import { fitJpeg } from "@/lib/jpeg-fit";
 import { ROBOT_APPS_KEY, readSensorsOnce, resetRobot, runApp, setEngineApps, stopRunning, useAppEngine } from "@/lib/robot-app-engine";
 import {
   ACTION_LABELS, EMOTION_CHOICES, EXAMPLE_APP, GESTURE_CHOICES, MAX_ACTIONS, MAX_APPS, MAX_IMAGE_BASE64, MAX_TRIGGERS, ROBOT_ONLY_ACTIONS, ROBOT_ONLY_TRIGGERS,
-  SOUND_CHOICES, TRIGGER_LABELS, appProblem, defaultAction, defaultTrigger, exportRobotApps, importRobotApps, readRobotApps,
+  SOUND_CHOICES, SYMBOL_CHOICES, WAIT_EVENTS, TRIGGER_LABELS, appProblem, defaultAction, defaultTrigger, exportRobotApps, importRobotApps, readRobotApps,
   type Action, type ActionKind, type RobotApp, type SensorSnapshot, type Trigger, type TriggerKind,
 } from "@/lib/robot-apps";
 import { useRobotApps, type RobotState } from "./RobotAppsPanel";
@@ -80,6 +80,22 @@ function ActionFields({ a, set }: { a: Action; set: (a: Action) => void }) {
     case "timer": return <div className="flex items-center gap-2 text-sm"><Input type="number" className="w-20" min={1} max={90} value={a.minutes} onChange={e => set({ ...a, minutes: Math.max(1, Math.min(90, Math.round(Number(e.target.value) || 1))) })} /><span>minuter (widget)</span></div>;
     case "wait": return <div className="flex items-center gap-2 text-sm"><Input type="number" className="w-20" step={0.5} min={0.2} max={60} value={a.seconds} onChange={e => set({ ...a, seconds: Math.max(0.2, Math.min(60, Number(e.target.value) || 1)) })} /><span>sekunder</span></div>;
     case "listen": return <p className="text-xs text-muted-foreground">Roboten börjar lyssna som när du trycker på skärmen. Appen fortsätter när samtalet är slut.</p>;
+    case "overlay": return <div className="flex flex-wrap items-center gap-2 text-sm">
+      <select className={sel} value={a.symbol} onChange={e => set({ ...a, symbol: e.target.value as typeof a.symbol })}>{SYMBOL_CHOICES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+      <Input className="w-56" maxLength={40} placeholder="text (valfritt)" value={a.text ?? ""} onChange={e => { const { text: _t, ...rest } = a; set(e.target.value ? { ...rest, text: e.target.value } : rest); }} />
+      <Input type="number" className="w-20" step={0.5} min={0.5} max={60} value={a.seconds} onChange={e => set({ ...a, seconds: Math.max(0.5, Math.min(60, Number(e.target.value) || 3)) })} /><span>sekunder</span>
+      <span className="w-full text-xs text-muted-foreground">Visas ovanpå ansiktet (symbol uppe till höger, text överst); ansiktet syns och reagerar under tiden.</span></div>;
+    case "wait_for": return <div className="space-y-2 text-sm"><div className="flex flex-wrap items-center gap-2">
+      <span>Vänta tills</span><select className={sel} value={a.event} onChange={e => { const ev = e.target.value as typeof a.event; const { threshold: _th, when: _w, ...rest } = a;
+        set(ev === "near" ? { ...rest, event: ev, threshold: 10 } : ev === "light" ? { ...rest, event: ev, threshold: 2, when: "dark" } : { ...rest, event: ev }); }}>
+        {WAIT_EVENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+      {a.event === "near" && <><span>värde ≥</span><Input type="number" className="w-20" min={1} max={2047} value={a.threshold ?? 10} onChange={e => set({ ...a, threshold: Math.max(1, Math.round(Number(e.target.value) || 1)) })} /></>}
+      {a.event === "light" && <><select className={sel} value={a.when ?? "dark"} onChange={e => set({ ...a, when: e.target.value as "dark" | "bright" })}><option value="dark">mörkt: ≤</option><option value="bright">ljust: ≥</option></select>
+        <Input type="number" className="w-20" min={0} max={65535} value={a.threshold ?? 2} onChange={e => set({ ...a, threshold: Math.max(0, Math.round(Number(e.target.value) || 0)) })} /></>}
+      <span>högst</span><Input type="number" className="w-20" min={1} max={600} value={a.seconds} onChange={e => set({ ...a, seconds: Math.max(1, Math.min(600, Math.round(Number(e.target.value) || 1))) })} /><span>s</span></div>
+      <div className="flex flex-wrap items-center gap-2"><span>Om det inte händer:</span><select className={sel} value={a.otherwise} onChange={e => set({ ...a, otherwise: e.target.value as "stop" | "continue" })}>
+        <option value="stop">avsluta appen</option><option value="continue">fortsätt ändå</option></select></div>
+      <span className="block text-xs text-muted-foreground">Exempel: rör huvudet → säg "Vad gör du?" → vänta tills roboten välter (högst 20 s) → säg "Din idiot!".</span></div>;
     case "stop_talk": return <p className="text-xs text-muted-foreground">Avslutar ett pågående samtal.</p>;
     case "reset": return <p className="text-xs text-muted-foreground">Vanlig LED, rensad skärm, neutralt ansikte, huvudet i mitten.</p>;
     default: return null;

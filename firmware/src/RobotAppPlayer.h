@@ -31,6 +31,11 @@ struct Env {
   virtual bool startConversation() = 0;           // same path as a display tap
   virtual bool conversationActive() = 0;
   virtual uint32_t playSound(const char* name) = 0;  // duration in ms, 0 = could not play
+  virtual bool overlay(const char* symbol, const char* text, uint32_t ms) = 0;  // v88 over the face
+  // v88 "vänta på": arm one event (threshold/dark only for near/light), poll, disarm.
+  virtual void armEvent(const char* event, uint32_t threshold, bool dark) = 0;
+  virtual bool eventFired() = 0;
+  virtual void disarmEvent() = 0;
 };
 
 constexpr uint32_t kMotionMinMs = 200, kMotionMaxMs = 15000, kLightsMaxMs = 15000, kSilentTurnMs = 1500;
@@ -51,7 +56,9 @@ class Player {
     steps_ = steps; next_ = 0; groupStart_ = 0; running_ = true; error_[0] = 0; groupOpen_ = false;
     std::snprintf(name_, sizeof name_, "%s", name ? name : "");
   }
-  void stop(const char* why = "Stoppad.") { if (running_) { running_ = false; std::snprintf(error_, sizeof error_, "%s", why); } }
+  void stop(const char* why = "Stoppad.") { if (running_) { running_ = false; eventOn_ = false; std::snprintf(error_, sizeof error_, "%s", why); } }
+  /** True while a "vänta på" step is armed (the robot then delivers events to the app instead of starting apps/conversations). */
+  bool waitingForEvent() const { return running_ && eventOn_; }
   bool running() const { return running_; }
   int step() const { return groupStart_; }
   const char* name() const { return name_; }
@@ -78,7 +85,8 @@ class Player {
   char name_[RobotAppPolicy::kNameMax + 1] = {};
   char error_[160] = {};
   // Waits of the open group
-  bool untilOn_ = false, motionOn_ = false, speechOn_ = false, lightsOn_ = false, talkOn_ = false;
+  bool untilOn_ = false, motionOn_ = false, speechOn_ = false, lightsOn_ = false, talkOn_ = false, eventOn_ = false, eventContinue_ = false;
+  uint32_t eventT0_ = 0, eventMs_ = 0;
   uint32_t untilEnd_ = 0, motionT0_ = 0, speechT0_ = 0, lightsT0_ = 0, talkT0_ = 0, idleSince_ = 0;
   int speechIdx_ = -1, lightsIdx_ = -1, talkIdx_ = -1, deferredMotion_ = -1;
   bool retried_ = false, talkSeen_ = false;
@@ -102,7 +110,7 @@ class Player {
 
   void openGroup(Env& env, uint32_t now) {
     groupOpen_ = true; groupStart_ = next_;
-    untilOn_ = motionOn_ = speechOn_ = lightsOn_ = talkOn_ = false;
+    untilOn_ = motionOn_ = speechOn_ = lightsOn_ = talkOn_ = eventOn_ = false;
     speechIdx_ = lightsIdx_ = talkIdx_ = deferredMotion_ = -1;
     int end = next_ + 1;
     while (end < static_cast<int>(steps_.size()) && RobotAppPolicy::withPrevious(steps_[end], end)) ++end;
@@ -148,6 +156,11 @@ class Player {
     else if (!std::strcmp(k, "timer")) ok = env.timerStart(a["minutes"] | 1);
     else if (!std::strcmp(k, "wait")) waitUntil(now, static_cast<uint32_t>(std::lround((a["seconds"] | 1.0) * 1000.0)));
     else if (!std::strcmp(k, "sound")) { const uint32_t ms = env.playSound(a["sound"] | "beep"); ok = ms > 0; if (ok) waitUntil(now, ms); }
+    else if (!std::strcmp(k, "overlay")) ok = env.overlay(a["symbol"] | "none", a["text"] | "", static_cast<uint32_t>(std::lround((a["seconds"] | 3.0) * 1000.0)));
+    else if (!std::strcmp(k, "wait_for")) {
+      env.armEvent(a["event"] | "", a["threshold"] | 0u, !std::strcmp(a["when"] | "dark", "dark"));
+      eventOn_ = true; eventT0_ = now; eventMs_ = (a["seconds"] | 30u) * 1000u; eventContinue_ = !std::strcmp(a["otherwise"] | "stop", "continue");
+    }
     else if (!std::strcmp(k, "stop_talk")) env.stopTalk();
     else if (!std::strcmp(k, "reset")) env.resetLook();
     else ok = false;
@@ -195,6 +208,13 @@ class Player {
       if ((talkSeen_ && !active) || now - talkT0_ >= kTalkMaxMs) talkOn_ = false; else waiting = true;
     }
     if (untilOn_) { if (static_cast<int32_t>(now - untilEnd_) < 0) waiting = true; else untilOn_ = false; }
+    if (eventOn_) {
+      if (env.eventFired()) { env.disarmEvent(); eventOn_ = false; }
+      else if (now - eventT0_ >= eventMs_) {
+        env.disarmEvent(); eventOn_ = false;
+        if (!eventContinue_) { running_ = false; groupOpen_ = false; return false; }  // nothing happened: the app simply ends
+      } else waiting = true;
+    }
     return !waiting;
   }
 };
