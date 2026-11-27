@@ -4,6 +4,7 @@
 #include <esp_task_wdt.h>
 #include "GeminiLiveProbe.h"
 #include "DiagnosticMode.h"
+#include "RobotApps.h"
 #include "ToolTogglePolicy.h"
 #include <WiFiClientSecure.h>
 #include <mbedtls/base64.h>
@@ -1494,6 +1495,7 @@ void GeminiLiveProbe::handleTranscription(JsonVariant serverContent) {
     Serial.printf("GeminiLive: input transcript chars=%u\n", static_cast<unsigned>(strlen(inputText)));
     logReadable("[DU]", inputText);
     rememberUtterance(inputText);  // v82
+    RobotApps::onUserWords(inputText);  // v85: "om användaren säger" app triggers
     if (!DiagnosticMode::active()) memory_->appendDialogue("user", String(inputText), "live_input_transcription");
   }
 

@@ -23,6 +23,14 @@ struct Hooks {
   std::function<int()> focusState;         // 0 idle, 1 running, 2 paused
   std::function<String(int)> focusAction;  // 0 widget, 1 fullscreen, 2 pause/resume, 3 stop; empty = ok
   std::function<void(int)> focusAdjust;    // -1/+1 focus minutes (idle only, saved)
+  // v85 robot apps ("Mina appar" pages, 4 apps per page)
+  std::function<int()> rappCount;
+  std::function<String(int)> rappName;
+  std::function<String(int)> rappStart;    // empty = started (menu closes)
+  std::function<void()> rappStop;
+  std::function<void()> rappReset;
+  std::function<String()> rappImportSd;    // result message
+  std::function<String()> rappStatus;      // running app or last error, empty when idle
 };
 void begin(const Hooks& hooks);
 bool active();

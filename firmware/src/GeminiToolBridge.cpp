@@ -6,6 +6,7 @@
 #include "ToolTogglePolicy.h"
 #include "TodoStore.h"
 #include "FocusApp.h"
+#include "RobotApps.h"
 #include "DeskApp.h"
 #include "GeminiLiveProbe.h"
 #include "MemoryStore.h"
@@ -270,6 +271,16 @@ String GeminiToolBridge::functionDeclarationsJson() {
     for (const char* c : {"red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink"}) f["color"]["enum"].add(c);
     p["required"].add("action");
   }
+  if (RobotApps::toolDeclared()) {  // v85: only when the owner has apps on the robot
+    auto app = arr.add<JsonObject>();
+    app["name"] = "start_app";
+    app["description"] = RobotApps::toolDescription();
+    auto p = app["parameters"].to<JsonObject>(); p["type"] = "object";
+    auto f = p["properties"].to<JsonObject>();
+    f["action"]["type"] = "string"; f["action"]["enum"].add("start"); f["action"]["enum"].add("stop");
+    f["name"]["type"] = "string"; f["name"]["description"] = "The app's name as the user said it (required for start).";
+    p["required"].add("action");
+  }
   for (int i = static_cast<int>(arr.size()) - 1; i >= 0; --i) {
     const char* name = arr[i]["name"] | "";
     if (!CapabilityPolicy::allowed(name, gateway_.isEnabled()) || !ToolToggle::allowed(name, ToolToggle::mask())) arr.remove(i);
@@ -344,6 +355,10 @@ GeminiToolBridge::LocalStatus GeminiToolBridge::handleLocal(
   if (name == "manage_todos") {
     TodoStore::handle(args, response);
     return LocalStatus::Handled;
+  }
+  if (name == "start_app") {
+    const int code = RobotApps::toolCall(args, response);
+    return code == 200 ? LocalStatus::Handled : LocalStatus::Error;
   }
   if (name == "control_timer") {
     const bool start = !std::strcmp(args["action"] | "", "start");

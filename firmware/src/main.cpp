@@ -28,6 +28,7 @@
 #include "TodoStore.h"
 #include "PerfMonitor.h"
 #include "SensorMonitor.h"
+#include "RobotApps.h"
 static void serialHelp();
 static void setupMenuAndBluetooth();
 static String routeApi(bool post, const String& path, const String& body);
@@ -319,6 +320,7 @@ void setup() {
       [](const char* j) { File f = storage.open("/focus.json", "w"); if (!f) return false; const size_t n = std::strlen(j); const bool ok = f.write(reinterpret_cast<const uint8_t*>(j), n) == n; f.close(); return ok; },
       [](char* b, size_t cap) -> size_t { File f = storage.open("/focus.json", "r"); if (!f) return size_t(0); const size_t sz = f.size(); if (sz > cap) { f.close(); return cap + 1; } const size_t n = f.read(reinterpret_cast<uint8_t*>(b), sz); f.close(); return n; });
     SmartHome::attachStorage(storage);
+    RobotApps::begin(storage, sd_ok);  // v85: owner's apps in /rapps
     Personality::begin(storage);
     bool memory_ok = memory.begin(policy);
     Serial.printf("MemoryStore status: %s session=%s day=%s\n",
@@ -557,7 +559,7 @@ static void setupMenuAndBluetooth() {
   h.api = [](bool post, const char* path, const String& body) { return routeApi(post, String(path), body); };
   h.getVolume = []() { return g_speaker_volume; };
   h.setVolume = [](uint8_t v) { g_speaker_volume = v; applySpeakerVolume(); };
-  h.onOpen = []() { DeskApp::stopFullscreen(); FocusApp::leaveFullscreen(); gemini.stopConversation(); servoGestures.queueGesture("center_head"); };
+  h.onOpen = []() { RobotApps::stop(); DeskApp::stopFullscreen(); FocusApp::leaveFullscreen(); gemini.stopConversation(); servoGestures.queueGesture("center_head"); };
   h.onClose = []() { emotion.setEmotion("neutral"); emotion.forceRedraw(); g_last_human_activity_ms = millis(); };
   h.bleAtBoot = bleAtBoot;
   h.setBleAtBoot = setBleAtBoot;
@@ -587,6 +589,13 @@ static void setupMenuAndBluetooth() {
     if (!e) { DeskApp::stop(); ScreenImage::clear(); Serial.printf("Menu: focus start %s\n", a == 1 ? "fullscreen" : "widget"); }
     return String(e ? e : "");
   };
+  h.rappCount = []() { return RobotApps::count(); };
+  h.rappName = [](int i) { return RobotApps::name(i); };
+  h.rappStart = [](int i) { return RobotApps::startIndex(i, "meny"); };
+  h.rappStop = []() { RobotApps::stop(); };
+  h.rappReset = []() { RobotApps::stop(); RobotApps::resetLook(); };
+  h.rappImportSd = []() { return RobotApps::importSd(); };
+  h.rappStatus = []() { return RobotApps::statusLine(); };
   TouchMenu::begin(h);
   if (bleAtBoot()) setBle(true);
 }
@@ -602,6 +611,10 @@ static void pollBluetooth() {
   }
 }
 
+// Conversation, menu, camera, diagnostics or an internet worker own the robot: apps must not start now.
+static bool robotBusy() {
+  return gemini.isReady() || gemini.isConnecting() || gemini.continuousConversation() || gemini.isRecording() || gemini.canInterrupt() || gemini.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy();
+}
 void loop() {
   PerfMonitor::loopStart();
   uint32_t loopStarted = micros();
@@ -632,6 +645,7 @@ void loop() {
   DeskApp::update(gemini.isReady() || gemini.isConnecting() || gemini.continuousConversation() || gemini.isRecording() || gemini.canInterrupt() || gemini.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy());
   FocusApp::update(gemini.isReady() || gemini.isConnecting() || gemini.continuousConversation() || gemini.isRecording() || gemini.canInterrupt() || gemini.toolPending() || AudioDiagnostics::busy() || TouchMenu::active() || CameraStream::active() || WebResearch::busy() || InternetVisual::busy() || SmartHome::busy());
   if (appWasFull && !DeskApp::fullscreen() && !FocusApp::fullscreen()) { emotion.forceRedraw(); g_last_human_activity_ms = millis(); }
+  RobotApps::loop(robotBusy());
   emotion.loop();
   { PerfMonitor::Scope timing(PerfMonitor::Services);
     servoGestures.loop();
@@ -676,6 +690,7 @@ void loop() {
   }
   streamWasActive = streamActive;
   bool touched = M5StackChan.TouchSensor.wasPressed();
+  if (touched && !robotBusy() && RobotApps::onHeadTouch()) { touched = false; g_last_human_activity_ms = millis(); }  // v85: an app owns head touch
   if (g_voice_toggle_requested) {
     g_voice_toggle_requested = false;
     Serial.println("HTTP voice toggle requested");

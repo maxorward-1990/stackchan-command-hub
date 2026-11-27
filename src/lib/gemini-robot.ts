@@ -198,6 +198,9 @@ export const robot = {
   showText: (text: string) => call("/api/display", { type: "text", text }),
   clearScreen: () => call("/api/display", { image: "clear" }),
   /** Bounded JPEG (≤64 KiB decoded; over USB the whole request line must fit 6144 bytes). */
+  /** v85+: apps stored and played on the robot (404 on older firmware). */
+  robotApps: () => call<Record<string, unknown>>("/api/robotapps"),
+  robotAppsPost: (body: Record<string, unknown>) => call<Record<string, unknown>>("/api/robotapps", body),
   showImage: (jpeg_base64: string) => call<{ ok: boolean }>("/api/display", { jpeg_base64 }),
   gesture: (gesture: string) => call("/api/servo/gesture", { gesture }),
   emotion: (emotion: string) => call("/api/emotion", { emotion }),

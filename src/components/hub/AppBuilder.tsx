@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Copy, Download, Gauge, Loader2, Play, Plus, PowerOff, RotateCcw, Save, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Download, Gauge, Loader2, Play, Plus, PowerOff, RotateCcw, Save, Send, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
+import { RobotAppsPanel, useRobotApps } from "./RobotAppsPanel";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,6 +83,7 @@ export function AppBuilder() {
   const apps = readRobotApps(stored);
   const [draft, setDraft] = useState<RobotApp | null>(null);
   const engine = useAppEngine();
+  const robotSide = useRobotApps();
   const file = useRef<HTMLInputElement>(null);
   const problem = draft ? appProblem(draft) : null;
   const appsKey = JSON.stringify(apps);
@@ -105,7 +107,7 @@ export function AppBuilder() {
 
   return <section className="space-y-5 border-b pb-8">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h3 className="text-lg font-semibold">Appbyggare</h3><p className="mt-1 text-sm text-muted-foreground">Om … så …: välj vad som startar appen och vad roboten ska göra. Apparna körs från Command Hub medan den är öppen och ansluten.</p></div>
+      <div><h3 className="text-lg font-semibold">Appbyggare</h3><p className="mt-1 text-sm text-muted-foreground">Om … så …: välj vad som startar appen och vad roboten ska göra. Prova här (körs från Command Hub), skicka sedan appen till roboten med ↑ så fungerar den utan dator.</p></div>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="icon" title="Exportera appar" aria-label="Exportera appar" disabled={!apps.length} onClick={exportAll}><Download /></Button>
         <Button variant="outline" size="icon" title="Importera appar" aria-label="Importera appar" onClick={() => file.current?.click()}><Upload /></Button>
@@ -129,9 +131,13 @@ export function AppBuilder() {
 
     {apps.length > 0 && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{apps.map(app => <div key={app.id} className={`flex items-center gap-3 rounded-md border px-3 py-3 ${draft?.id === app.id ? "border-primary bg-secondary" : ""}`}>
       <button className="min-w-0 flex-1 text-left" onClick={() => setDraft(app)}><span className="block break-words font-semibold">{app.name}</span><span className="mt-1 block text-xs text-muted-foreground">{summary(app)} · {app.actions.length} steg</span></button>
+      <Button size="icon" variant="outline" title="Skicka till roboten (fungerar sedan utan dator)" aria-label={`Skicka ${app.name} till roboten`} disabled={robotSide.busy !== null}
+        onClick={() => void robotSide.send(app, () => { if (app.enabled) store(apps.map(a => a.id === app.id ? { ...a, enabled: false } : a)); })}>{robotSide.busy?.startsWith(`send:${app.id}`) ? <Loader2 className="animate-spin" /> : <Send />}</Button>
       <Button size="icon" variant="outline" title="Kör nu" aria-label={`Kör ${app.name}`} disabled={engine.running !== null} onClick={() => void runApp(app, "knapp")}><Play /></Button>
       <Switch aria-label={`Aktivera ${app.name}`} title="Aktiv: lyssnar på sina villkor" checked={app.enabled} onCheckedChange={enabled => { store(apps.map(a => a.id === app.id ? { ...a, enabled } : a)); if (draft?.id === app.id) setDraft({ ...draft, enabled }); }} />
     </div>)}</div>}
+
+    <RobotAppsPanel state={robotSide} apps={apps} />
 
     {draft && <div className="space-y-6 rounded-md border p-4">
       <div className="flex flex-wrap items-end gap-4">

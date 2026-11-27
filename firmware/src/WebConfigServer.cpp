@@ -20,6 +20,7 @@
 #include "TodoStore.h"
 #include "Personality.h"
 #include "DiagnosticMode.h"
+#include "RobotApps.h"
 #include <esp_system.h>
 #include <M5Unified.h>
 #include <M5StackChan.h>
@@ -350,6 +351,17 @@ void WebConfigServer::registerRoutes() {
     if (code == 200 && !busy && std::strcmp(in["action"] | "", "stop")) FocusApp::stop();
     if (code == 200 && !busy) { ScreenImage::clear(); emotion_.setEmotion("neutral"); emotion_.forceRedraw(); }
     sendJson(code, out);
+  });
+  on("/api/robotapps", HTTP_GET, [this]() {
+    if (!requireAuth()) return;
+    JsonDocument out; RobotApps::status(out); sendJson(200, out);
+  });
+  on("/api/robotapps", HTTP_POST, [this]() {
+    if (!requireAuth()) return;
+    JsonDocument in, out;
+    const String body = readBody();
+    if (body.length() > 6000 || deserializeJson(in, body)) { out["ok"] = false; out["error"] = "invalid_robotapps_request"; sendJson(400, out); return; }
+    sendJson(RobotApps::handle(in.as<JsonVariantConst>(), out), out);
   });
   on("/api/apps/focus", HTTP_GET, [this]() {
     if (!requireAuth()) return;
@@ -1843,4 +1855,13 @@ String WebConfigServer::serialApi(HTTPMethod method, const String& path, const S
   String out = String(serial_code_) + " " + serial_out_;
   serial_active_ = false; serial_body_ = ""; serial_query_ = ""; serial_out_ = "";
   return out;
+}
+
+// v85: robot-app sensor triggers read the same LTR-553 values as /api/sensors (main loop only).
+bool robotAppsReadLtr553(uint32_t& ps, uint32_t& als) {
+  uint8_t p[2] = {0, 0}, a[4] = {0, 0, 0, 0};
+  if (!configureLtr553Once() || !ltrRead(kLtrPsData, p, 2) || !ltrRead(kLtrAlsDataCh1, a, 4)) return false;
+  ps = ((static_cast<uint32_t>(p[1]) & 0x07) << 8) | p[0];
+  als = ((static_cast<uint32_t>(a[3]) << 8 | a[2]) + (static_cast<uint32_t>(a[1]) << 8 | a[0])) / 2;
+  return true;
 }

@@ -1,2 +1,2 @@
 #pragma once
-inline constexpr const char* kFirmwareVersion = "custom-v84";
+inline constexpr const char* kFirmwareVersion = "custom-v85";

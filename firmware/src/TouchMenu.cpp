@@ -21,8 +21,19 @@ constexpr int kMaxNets = 20, kPerPage = 4;
 String g_ssid[kMaxNets]; int g_rssi[kMaxNets]; bool g_open[kMaxNets]; int g_netCount = 0, g_page = 0;
 String g_chosen; std::string g_pass; Layer g_layer = Layer::Lower; bool g_showPass = true;
 String g_msg;
-// Carousel: page 0 settings, page 1 clock app, page 2 focus timer. Main-screen touches act on release so swipes can be told from taps.
-constexpr int kMenuPages = 3;
+// Carousel: page 0 settings, page 1 clock app, page 2 focus timer, pages 3+ robot apps (v85, 4 per page).
+// Main-screen touches act on release so swipes can be told from taps.
+constexpr int kFixedPages = 3, kAppsPerPage = 4;
+int rappCount() { return H.rappCount ? H.rappCount() : 0; }
+int menuPages() { const int n = rappCount(); return kFixedPages + (n > 0 ? (n + kAppsPerPage - 1) / kAppsPerPage : 1); }
+const Rect kAppRects[kAppsPerPage] = {{6, 40, 150, 52}, {164, 40, 150, 52}, {6, 98, 150, 52}, {164, 98, 150, 52}};
+const Rect kAppStop{6, 156, 98, 48}, kAppReset{110, 156, 98, 48}, kAppSd{214, 156, 100, 48};
+String shortLabel(const String& s, size_t maxBytes = 16) {  // UTF-8 safe cut for a 150 px button
+  if (s.length() <= maxBytes) return s;
+  size_t n = maxBytes - 2;
+  while (n > 0 && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;
+  return s.substring(0, n) + "..";
+}
 int g_menuPage = 0, g_px0 = -1, g_py0 = 0, g_px1 = 0, g_py1 = 0;
 String g_appMsg;
 
@@ -52,9 +63,22 @@ void pagerChrome(const char* t) {
   auto& d = D(); d.setTextColor(BG, ACC);
   d.setTextDatum(middle_center); d.drawString(">", kW - 80, 16);
   d.setTextDatum(middle_right); d.drawString("X", kW - 12, 16);
-  for (int i = 0; i < kMenuPages; ++i) { int cx = 190 + i * 14; if (i == g_menuPage) d.fillCircle(cx, 16, 4, BG); else d.drawCircle(cx, 16, 4, BG); }
+  const int pages = menuPages(), x0 = pages > kFixedPages + 1 ? 156 : 190, dx = pages > kFixedPages + 1 ? 11 : 14;
+  for (int i = 0; i < pages; ++i) { int cx = x0 + i * dx; if (i == g_menuPage) d.fillCircle(cx, 16, 4, BG); else d.drawCircle(cx, 16, 4, BG); }
 }
 void drawMain() {
+  if (g_menuPage >= menuPages()) g_menuPage = 0;
+  if (g_menuPage >= kFixedPages) {
+    pagerChrome("Mina appar");
+    auto& d = D();
+    const int n = rappCount(), first = (g_menuPage - kFixedPages) * kAppsPerPage;
+    if (!n) { d.setTextDatum(top_left); d.setTextColor(FG, BG); d.drawString("Inga appar på roboten.", 10, 52); d.drawString("Skicka en från Command Hub", 10, 76); d.drawString("eller läs in från SD-kort.", 10, 96); }
+    for (int i = 0; i < kAppsPerPage && first + i < n; ++i) button(kAppRects[i], shortLabel(H.rappName ? H.rappName(first + i) : String("?")), ACC);
+    button(kAppStop, "Stopp", WARN); button(kAppReset, "Återställ"); button(kAppSd, "SD-kort");
+    String status = g_appMsg.length() ? g_appMsg : (H.rappStatus ? H.rappStatus() : String());
+    if (status.length()) { d.setTextColor(WARN, BG); d.setTextDatum(top_left); d.drawString(shortLabel(status, 38), 6, 212); }
+    return;
+  }
   if (g_menuPage == 2) {
     pagerChrome("Fokus");
     auto& d = D(); d.setTextDatum(top_left);
@@ -235,11 +259,24 @@ void tap(int x, int y) {
       using MenuPagerPolicy::Title;
       switch (MenuPagerPolicy::titleHit(x, y)) {
         case Title::Close: close(); return;
-        case Title::Prev: g_menuPage = MenuPagerPolicy::step(g_menuPage, kMenuPages, MenuPagerPolicy::Gesture::Prev); g_appMsg = ""; draw(); return;
-        case Title::Next: g_menuPage = MenuPagerPolicy::step(g_menuPage, kMenuPages, MenuPagerPolicy::Gesture::Next); g_appMsg = ""; draw(); return;
+        case Title::Prev: g_menuPage = MenuPagerPolicy::step(g_menuPage, menuPages(), MenuPagerPolicy::Gesture::Prev); g_appMsg = ""; draw(); return;
+        case Title::Next: g_menuPage = MenuPagerPolicy::step(g_menuPage, menuPages(), MenuPagerPolicy::Gesture::Next); g_appMsg = ""; draw(); return;
         default: break;
       }
       if (y < 32) return;
+      if (g_menuPage >= kFixedPages) {
+        const int first = (g_menuPage - kFixedPages) * kAppsPerPage, n = rappCount();
+        for (int i = 0; i < kAppsPerPage; ++i) {
+          if (first + i >= n || !kAppRects[i].hit(x, y)) continue;
+          String err = H.rappStart ? H.rappStart(first + i) : String("Stöds ej");
+          if (err.length()) { g_appMsg = err; draw(); return; }
+          g_appMsg = ""; close(); return;
+        }
+        if (kAppStop.hit(x, y)) { if (H.rappStop) H.rappStop(); g_appMsg = "Stoppad."; draw(); return; }
+        if (kAppReset.hit(x, y)) { if (H.rappReset) H.rappReset(); g_appMsg = "Återställd."; draw(); return; }
+        if (kAppSd.hit(x, y)) { g_appMsg = "Läser SD-kort..."; draw(); g_appMsg = H.rappImportSd ? H.rappImportSd() : String("Stöds ej"); draw(); return; }
+        return;
+      }
       if (g_menuPage == 2) {
         const int st0 = H.focusState ? H.focusState() : 0;
         if (!st0 && H.focusAdjust && (Rect{6, 62, 60, 48}.hit(x, y) || Rect{254, 62, 60, 48}.hit(x, y))) {
@@ -345,7 +382,7 @@ bool loop(bool pressed, int x, int y) {
       const auto g = MenuPagerPolicy::classify(x0, y0, g_px1, g_py1);
       if (g == MenuPagerPolicy::Gesture::Tap) tap(x0, y0);
       else if (g == MenuPagerPolicy::Gesture::Close) close();
-      else if (g != MenuPagerPolicy::Gesture::None) { g_menuPage = MenuPagerPolicy::step(g_menuPage, kMenuPages, g); g_appMsg = ""; draw(); }
+      else if (g != MenuPagerPolicy::Gesture::None) { g_menuPage = MenuPagerPolicy::step(g_menuPage, menuPages(), g); g_appMsg = ""; draw(); }
     }
   } else if (pressed && !g_wasPressed) { g_lastTouch = now; tap(x, y); }
   g_wasPressed = pressed;

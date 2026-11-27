@@ -189,7 +189,9 @@
 - [x] Frys grunden: `firmware/` är nu v84 som vanligt källträd (identiskt med prepare_apps.py-resultatet, alla firmwaretester gröna); overlayn arkiverad i `firmware/history/`
 - [x] Appar som data, steg 1: appbyggare i Command Hub (Appar) – om knapp/klockslag/tal (USB)/närhet/ljus/huvudtryck så LED, ansikte, gest/dans, titta, text, bild, säg, fråga Gemini, lampor, att-göra, timer, vänta; körs från Command Hub utan flashning, export/import som JSON (format v1); provat med simulerad robot
 - [ ] Prova appbyggaren med den riktiga roboten (sensorgränser, "säger" över USB, bild via USB) — kräver ägaren
-- [ ] Appar som data, steg 2 (v85): uppspelare på roboten för samma JSON (internminne + SD-kort), start från robotens skärm/röst/klockslag/sensorer utan dator, appar kan ta över skärmtryck, bild med text ovanpå
+- [x] Appar som data, steg 2 (v85, byggd och testad i datorn): appar skickas till roboten och körs utan dator – meny Mina appar, röst (start_app), klockslag/närhet/ljus/huvudtryck/tal, SD-import
+- [ ] Flasha v85 och prova på roboten: skicka en app, starta via meny och röst, ett automatiskt villkor, SD-import — kräver ägaren
+- [ ] Senare: bild med text ovanpå
 - Princip: mer beteende via prompter/färdigheter i Command Hub; firmware ändras bara för nya sorters förmågor
 - Princip: ingen skriptmotor (Lua/Berry) på roboten tills deklarativa appar inte räcker — internminnet behövs för TLS
 - Arbetssätt: samla flera önskemål per firmwareversion; mekaniska uppgifter på billigare modell; skicka diagnossammanfattning + relevanta loggrader

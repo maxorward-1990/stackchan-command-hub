@@ -109,6 +109,7 @@ async function resetLook() {
 /** Stop the running app and put the robot back to normal (also ends a conversation over USB). */
 export async function resetRobot() {
   stopRunning();
+  await robot.robotAppsPost({ action: "stop" }).catch(() => undefined);  // an app playing on the robot (v85+)
   await new Promise(r => setTimeout(r, 100));
   if (serialConnected()) await robot.stopConversation().catch(() => undefined);
   await resetLook();
