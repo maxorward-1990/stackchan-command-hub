@@ -79,6 +79,7 @@ export async function executeAction(a: Action, signal: AbortSignal = new AbortCo
     case "todo": { const r = await robot.todos({ action: "add", text: a.text }); if (!r.ok) throw new Error(r.error || "Att-göra kunde inte sparas."); return; }
     case "timer": await robot.focusStart(focusStartRequest({ focus_min: a.minutes, break_min: 1, rounds: 1, mode: "widget" })); return;
     case "stop_talk": await robot.stopConversation(); return;
+    case "reset": await resetLook(); return;
     case "wait": return;  // handled by runActions
   }
 }
@@ -97,6 +98,22 @@ export async function runApp(app: RobotApp, reason: string): Promise<boolean> {
   return true;
 }
 export function stopRunning() { controller?.abort(); }
+
+/** Normal look again: LEDs follow the personality, screen cleared, neutral face, head centred. */
+async function resetLook() {
+  const errors: string[] = [];
+  for (const step of [() => robot.led("auto"), () => robot.clearScreen(), () => robot.emotion("neutral"), () => robot.home()])
+    await step().catch(e => errors.push(e instanceof Error ? e.message : String(e)));
+  if (errors.length) throw new Error(errors[0]);
+}
+/** Stop the running app and put the robot back to normal (also ends a conversation over USB). */
+export async function resetRobot() {
+  stopRunning();
+  await new Promise(r => setTimeout(r, 100));
+  if (serialConnected()) await robot.stopConversation().catch(() => undefined);
+  await resetLook();
+  log("↺ Roboten återställd");
+}
 
 function fire(app: RobotApp, reason: string) {
   if (!mayStart(app, lastRun.get(app.id), Date.now(), state.running !== null)) return;

@@ -46,6 +46,7 @@ export const actionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("timer"), minutes: z.number().int().min(1).max(90) }),
   z.object({ kind: z.literal("wait"), seconds: z.number().min(0.2).max(60) }),
   z.object({ kind: z.literal("stop_talk") }),
+  z.object({ kind: z.literal("reset") }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 export type ActionKind = Action["kind"];
@@ -67,7 +68,7 @@ export const TRIGGER_LABELS: Record<TriggerKind, string> = {
 export const ACTION_LABELS: Record<ActionKind, string> = {
   led: "LED-färg", emotion: "Ansiktsuttryck", gesture: "Gest / dans", look: "Titta åt", text: "Visa text", image: "Visa bild",
   clear: "Rensa skärmen", speak: "Säg en mening", ask: "Fråga Gemini", lights: "Lampor (Smart Life)", todo: "Lägg till att-göra",
-  timer: "Starta timer", wait: "Vänta", stop_talk: "Avsluta samtal",
+  timer: "Starta timer", wait: "Vänta", stop_talk: "Avsluta samtal", reset: "Återställ roboten",
 };
 /** Triggers that need the USB connection in Command Hub (they read the robot's console lines). */
 export const USB_ONLY_TRIGGERS: TriggerKind[] = ["says"];
@@ -99,6 +100,7 @@ export function defaultAction(kind: ActionKind): Action {
     case "timer": return { kind, minutes: 5 };
     case "wait": return { kind, seconds: 2 };
     case "stop_talk": return { kind };
+    case "reset": return { kind };
   }
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Copy, Download, Gauge, Loader2, Play, Plus, Save, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Download, Gauge, Loader2, Play, Plus, PowerOff, RotateCcw, Save, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocal } from "@/lib/use-local";
 import { fitJpeg } from "@/lib/jpeg-fit";
-import { ROBOT_APPS_KEY, readSensorsOnce, runApp, setEngineApps, stopRunning, useAppEngine } from "@/lib/robot-app-engine";
+import { ROBOT_APPS_KEY, readSensorsOnce, resetRobot, runApp, setEngineApps, stopRunning, useAppEngine } from "@/lib/robot-app-engine";
 import {
   ACTION_LABELS, EMOTION_CHOICES, EXAMPLE_APP, GESTURE_CHOICES, MAX_ACTIONS, MAX_APPS, MAX_IMAGE_BASE64, MAX_TRIGGERS, TRIGGER_LABELS,
   USB_ONLY_TRIGGERS, appProblem, defaultAction, defaultTrigger, exportRobotApps, importRobotApps, readRobotApps,
@@ -72,6 +72,7 @@ function ActionFields({ a, set }: { a: Action; set: (a: Action) => void }) {
     case "timer": return <div className="flex items-center gap-2 text-sm"><Input type="number" className="w-20" min={1} max={90} value={a.minutes} onChange={e => set({ ...a, minutes: Math.max(1, Math.min(90, Math.round(Number(e.target.value) || 1))) })} /><span>minuter (widget)</span></div>;
     case "wait": return <div className="flex items-center gap-2 text-sm"><Input type="number" className="w-20" step={0.5} min={0.2} max={60} value={a.seconds} onChange={e => set({ ...a, seconds: Math.max(0.2, Math.min(60, Number(e.target.value) || 1)) })} /><span>sekunder</span></div>;
     case "stop_talk": return <p className="text-xs text-muted-foreground">Kräver USB.</p>;
+    case "reset": return <p className="text-xs text-muted-foreground">Vanlig LED, rensad skärm, neutralt ansikte, huvudet i mitten.</p>;
     default: return null;
   }
 }
@@ -121,6 +122,8 @@ export function AppBuilder() {
       {engine.running ? <><Loader2 className="size-4 animate-spin text-primary" /><span>Kör <b>{engine.running.name}</b></span><Button size="sm" variant="outline" onClick={stopRunning}><Square />Stoppa</Button></>
         : <span className="text-muted-foreground">{engine.armed ? `${engine.armed} app${engine.armed > 1 ? "ar" : ""} aktiv${engine.armed > 1 ? "a" : ""} och lyssnar` : "Ingen app är aktiv."}</span>}
       <span className="ml-auto text-xs text-muted-foreground">{engine.sensorError ? `Sensorer: ${engine.sensorError}` : engine.sensors ? `Närhet ${engine.sensors.ps_raw ?? "–"} · ljus ${engine.sensors.als_avg ?? "–"} · huvud ${engine.sensors.head_pressed ? "rörs" : "–"}` : ""}</span>
+      <Button size="sm" variant="outline" title="Stoppa appen och återställ LED, skärm, ansikte och huvud (och avsluta samtal via USB)" onClick={() => void resetRobot().catch(e => toast.error(e instanceof Error ? e.message : "Återställningen misslyckades."))}><RotateCcw />Återställ</Button>
+      <Button size="sm" variant="outline" disabled={!engine.armed} title="Stäng av alla appar så att inga villkor lyssnar" onClick={() => { store(apps.map(a => ({ ...a, enabled: false }))); if (draft) setDraft({ ...draft, enabled: false }); toast.success("Alla appar avstängda."); }}><PowerOff />Stäng av alla</Button>
       <Button size="sm" variant="ghost" title="Läs sensorerna en gång, för att välja gränsvärden" onClick={() => void readSensorsOnce().catch(e => toast.error(e instanceof Error ? e.message : "Sensorerna svarar inte."))}><Gauge />Läs sensorer</Button>
     </div>
 

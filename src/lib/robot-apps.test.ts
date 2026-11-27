@@ -7,7 +7,7 @@ import {
 describe("robot app format", () => {
   it("every default trigger/action except an empty image is valid", () => {
     const triggers: TriggerKind[] = ["button", "time", "says", "near", "light", "head_touch"];
-    const actions: ActionKind[] = ["led", "emotion", "gesture", "look", "text", "clear", "speak", "ask", "todo", "timer", "wait", "stop_talk"];
+    const actions: ActionKind[] = ["led", "emotion", "gesture", "look", "text", "clear", "speak", "ask", "todo", "timer", "wait", "stop_talk", "reset"];
     for (const t of triggers) for (const a of actions) expect(appProblem({ ...EXAMPLE_APP, triggers: [defaultTrigger(t)], actions: [defaultAction(a)] })).toBeNull();
     expect(appProblem({ ...EXAMPLE_APP, actions: [defaultAction("image")] })).toMatch(/välj en bild/);
     expect(appProblem({ ...EXAMPLE_APP, actions: [defaultAction("lights")] })).toMatch(/Steg 1/);
