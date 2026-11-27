@@ -22,6 +22,12 @@ export const WAKE_MODEL_MAX = 0x80000;
 export const LITTLEFS_ADDRESS = 0xc90000;
 
 export const RELEASES: Release[] = [
+  { id: "v86", experimental: true, version: "custom-v86", file: "/firmware/v86-app.bin", md5: "101f822b9aff6a1d339035743dbf2b52", size: 3154144, kind: "app", date: "2026-11-27",
+    parts: [
+      { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
+      { file: "/firmware/v50-wake-model.bin", md5: "1ee5a6100d24af4eb0e7b363ea5fbc51", size: 291070, address: 0xc10000 },
+    ],
+    notes: ["Byggd av GitHub från commit ce9a1ed", "v84 är fortfarande rekommenderad tills v86 testats på roboten"] },
   { id: "v85", experimental: true, version: "custom-v85", file: "/firmware/v85-app.bin", md5: "750a52aa4796b4ab41aaba365174fb07", size: 3153296, kind: "app", date: "2026-11-27",
     parts: [
       { file: "/firmware/v50-partitions.bin", md5: "6733215c5bdc586a37e24fb0b50485a8", size: 3072, address: 0x8000 },
