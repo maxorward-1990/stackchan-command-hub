@@ -38,7 +38,8 @@ struct FakeEnv : RobotAppPlayer::Env {
   uint32_t playSound(const char* n) override { calls.push_back(std::string("sound ") + n); return 600; }
   bool fired = false; std::string armed;
   bool overlay(const char* s, const char* t, uint32_t ms) override { calls.push_back(std::string("overlay ") + s + " " + t + " " + std::to_string(ms)); return true; }
-  void armEvent(const char* e, uint32_t th, bool dark) override { armed = std::string(e) + ":" + std::to_string(th) + (dark ? ":dark" : ""); calls.push_back("arm " + armed); }
+  uint32_t since = 0;
+  void armEvent(const char* e, uint32_t th, bool dark, uint32_t s) override { since = s; armed = std::string(e) + ":" + std::to_string(th) + (dark ? ":dark" : ""); calls.push_back("arm " + armed); }
   bool eventFired() override { return fired; }
   void disarmEvent() override { armed.clear(); }
 };
@@ -151,7 +152,7 @@ int main() {
   assert(validate(w.as<JsonVariantConst>()) == nullptr);
   FakeEnv ew; RobotAppPlayer::Player pw; pw.start(w["actions"].as<JsonArrayConst>(), "Retas");
   run(pw, ew, 200); ew.speakingNow = true; run(pw, ew, 500); ew.speakingNow = false; run(pw, ew, 1800);
-  assert(ew.armed == "tipped:0:dark" && pw.waitingForEvent());
+  assert(ew.armed == "tipped:0:dark" && pw.waitingForEvent() && ew.since == 0);  // since = start of the speech group: an earlier tip counts
   run(pw, ew, 5000); assert(ew.calls.back() == "arm tipped:0:dark");          // still waiting
   ew.fired = true; run(pw, ew, 200); ew.fired = false; run(pw, ew, 200);
   assert(ew.calls[ew.calls.size() - 2] == "overlay heart Din idiot! 3000" && ew.calls.back() == "arm near:10:dark");

@@ -210,6 +210,7 @@ uint32_t synth(const char* name) {
 
 // ---- v88 "vänta på": one armed event while an app waits ----
 struct Waiting { bool on = false, fired = false, dark = true; Trig kind = Trig::Button; uint32_t threshold = 0; int8_t plugged = -1; } g_wait;
+uint32_t g_lastEvent[13] = {};  // v89: millis() of each event kind while an app runs (0 = none)
 bool g_appTalked = false;  // the app opened a Gemini session (closed again when the app ends)
 int8_t pluggedNow() {
   const char* st = SensorMonitor::batteryState();
@@ -217,6 +218,8 @@ int8_t pluggedNow() {
   return !std::strcmp(st, "charging") || !std::strcmp(st, "usb");
 }
 void eventHappened(Trig kind) {
+  if (!g_player.running()) return;
+  g_lastEvent[static_cast<int>(kind)] = millis() ? millis() : 1;
   if (g_wait.on && !g_wait.fired && g_wait.kind == kind) { g_wait.fired = true; Serial.printf("[APP] event %s\n", kTrigNames[static_cast<int>(kind)]); }
 }
 
@@ -288,11 +291,13 @@ struct DeviceEnv : RobotAppPlayer::Env {
     FaceOverlay::set(symbol, text, ms); ::emotion.forceRedraw();
     return true;
   }
-  void armEvent(const char* event, uint32_t threshold, bool dark) override {
+  void armEvent(const char* event, uint32_t threshold, bool dark, uint32_t sinceMs) override {
     g_wait = Waiting{};
     for (int n = 0; n < static_cast<int>(sizeof kTrigNames / sizeof kTrigNames[0]); ++n) if (!std::strcmp(event, kTrigNames[n])) g_wait.kind = static_cast<Trig>(n);
     g_wait.on = g_wait.kind != Trig::Button; g_wait.threshold = threshold; g_wait.dark = dark; g_wait.plugged = pluggedNow();
     Serial.printf("[APP] waiting for %s\n", event);
+    const uint32_t seen = g_wait.on ? g_lastEvent[static_cast<int>(g_wait.kind)] : 0;
+    if (seen && static_cast<int32_t>(seen - sinceMs) >= 0) { g_wait.fired = true; Serial.printf("[APP] event %s (already happened)\n", event); }
   }
   bool eventFired() override { return g_wait.fired; }
   void disarmEvent() override { g_wait = Waiting{}; }
@@ -323,6 +328,7 @@ void beginRun(int index) {
   if (!parseApp(*g_fs, path(kDir, (String(m.id) + ".json").c_str()), *g_run)) { g_lastError = String(m.name) + ": appfilen kunde inte läsas"; Serial.printf("[APP] %s\n", g_lastError.c_str()); return; }
   g_lastRun[index] = millis(); g_everRun[index] = true;
   g_lastError = "";
+  for (auto& t : g_lastEvent) t = 0;
   g_player.start((*g_run)["actions"].as<JsonArrayConst>(), m.name);
   Serial.printf("[APP] start \"%s\" (%s) steps=%u\n", m.name, g_runOrigin.c_str(), static_cast<unsigned>(m.steps));
 }
@@ -586,13 +592,13 @@ void onUserWords(const char* fragment) {
 bool onHeadTouch() {
   Serial.println("[APP] head touch");
   if (!g_meta) return false;
-  if (g_player.waitingForEvent() && g_wait.kind == Trig::HeadTouch) { eventHappened(Trig::HeadTouch); return true; }
+  if (g_player.running()) { eventHappened(Trig::HeadTouch); return true; }  // v89: a running app owns head touch (recorded for "vänta på")
   // v87: while an app wants head touch it owns every touch, also during its run, start or cooldown (v86 started a conversation).
   return fireKind(Trig::HeadTouch, "huvudet");
 }
 void onMotion(const char* motion) {
   if (!g_meta || !motion) return;
-  if (g_player.waitingForEvent()) {  // v88: an app waiting for this event gets it instead of starting another app
+  if (g_player.running()) {  // v88/v89: a running app records the event (for "vänta på") instead of starting another app
     const Trig k = !std::strcmp(motion, "tap") ? Trig::Knock : !std::strcmp(motion, "lifted") ? Trig::Lifted : !std::strcmp(motion, "tipped") ? Trig::Tipped : Trig::PutDown;
     eventHappened(k);
     return;

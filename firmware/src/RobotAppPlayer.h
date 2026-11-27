@@ -33,7 +33,8 @@ struct Env {
   virtual uint32_t playSound(const char* name) = 0;  // duration in ms, 0 = could not play
   virtual bool overlay(const char* symbol, const char* text, uint32_t ms) = 0;  // v88 over the face
   // v88 "vänta på": arm one event (threshold/dark only for near/light), poll, disarm.
-  virtual void armEvent(const char* event, uint32_t threshold, bool dark) = 0;
+  // sinceMs: start of the previous step group - an event that already happened during it counts (v89).
+  virtual void armEvent(const char* event, uint32_t threshold, bool dark, uint32_t sinceMs) = 0;
   virtual bool eventFired() = 0;
   virtual void disarmEvent() = 0;
 };
@@ -81,6 +82,7 @@ class Player {
  private:
   JsonArrayConst steps_;
   int next_ = 0, groupStart_ = 0;
+  uint32_t groupT0_ = 0, prevGroupT0_ = 0;
   bool running_ = false, groupOpen_ = false;
   char name_[RobotAppPolicy::kNameMax + 1] = {};
   char error_[160] = {};
@@ -110,6 +112,7 @@ class Player {
 
   void openGroup(Env& env, uint32_t now) {
     groupOpen_ = true; groupStart_ = next_;
+    prevGroupT0_ = next_ == 0 ? now : groupT0_; groupT0_ = now;
     untilOn_ = motionOn_ = speechOn_ = lightsOn_ = talkOn_ = eventOn_ = false;
     speechIdx_ = lightsIdx_ = talkIdx_ = deferredMotion_ = -1;
     int end = next_ + 1;
@@ -158,7 +161,7 @@ class Player {
     else if (!std::strcmp(k, "sound")) { const uint32_t ms = env.playSound(a["sound"] | "beep"); ok = ms > 0; if (ok) waitUntil(now, ms); }
     else if (!std::strcmp(k, "overlay")) ok = env.overlay(a["symbol"] | "none", a["text"] | "", static_cast<uint32_t>(std::lround((a["seconds"] | 3.0) * 1000.0)));
     else if (!std::strcmp(k, "wait_for")) {
-      env.armEvent(a["event"] | "", a["threshold"] | 0u, !std::strcmp(a["when"] | "dark", "dark"));
+      env.armEvent(a["event"] | "", a["threshold"] | 0u, !std::strcmp(a["when"] | "dark", "dark"), prevGroupT0_);
       eventOn_ = true; eventT0_ = now; eventMs_ = (a["seconds"] | 30u) * 1000u; eventContinue_ = !std::strcmp(a["otherwise"] | "stop", "continue");
     }
     else if (!std::strcmp(k, "stop_talk")) env.stopTalk();

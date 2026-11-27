@@ -7,6 +7,10 @@ Sedan 2026-11-27 är den här mappen firmwarekällan som byggs: v84, fryst fil f
 (GitHub-workflowet Bygg firmware gör samma sak). Versionsnoteringar för v66–v84 finns i `history/`;
 avsnitten nedan är v61-källans ursprungliga noteringar.
 
+## v89 — appar tål att man rör roboten
+- Medan en app körs avbryter ett skärmtryck inte appens tal och startar inget samtal; håll inne skärmen för att stoppa appen.
+- Rörelser och huvudtryck räknas även medan appen pratar, och en händelse som redan hänt under steget före "Vänta på" räknas (v88 missade en vältning direkt efter talet).
+
 ## v88 — röstkommandon till appar, symbol över ansiktet, "vänta på"
 - Gemini får appens fraser ("om användaren säger …") och startar appen direkt när en begäran passar, t.ex. "ta en bild", utan "starta appen" och före sina egna verktyg.
 - Nytt steg **Visa över ansiktet**: hjärta, stjärna, ?, !, Zzz eller not och/eller en kort text ovanpå ansiktet i N sekunder.

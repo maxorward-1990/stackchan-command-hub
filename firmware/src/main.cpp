@@ -670,7 +670,7 @@ void loop() {
         g_last_human_activity_ms = millis();
         emotion.setEmotion(SensorPolicy::recoveryEmotion(gemini.isRecording(), gemini.isSpeaking(), convActive)); emotion.forceRedraw();
       }
-      if (motion != Motion::None && !robotBusy()) RobotApps::onMotion(SensorPolicy::motionName(motion));  // v87 app triggers
+      if (motion != Motion::None && (!robotBusy() || RobotApps::running())) RobotApps::onMotion(SensorPolicy::motionName(motion));  // v87 triggers, v89 also during an app's speech
     }
   }
   // Live camera (surveillance) mode: a viewer on :81/stream pauses voice.
@@ -694,7 +694,7 @@ void loop() {
   }
   streamWasActive = streamActive;
   bool touched = M5StackChan.TouchSensor.wasPressed();
-  if (touched && !robotBusy() && RobotApps::onHeadTouch()) { touched = false; g_last_human_activity_ms = millis(); }  // v85: an app owns head touch
+  if (touched && (!robotBusy() || RobotApps::running()) && RobotApps::onHeadTouch()) { touched = false; g_last_human_activity_ms = millis(); }  // v85: an app owns head touch (v89: also while it talks)
   if (g_voice_toggle_requested) {
     g_voice_toggle_requested = false;
     Serial.println("HTTP voice toggle requested");
@@ -732,6 +732,12 @@ void loop() {
       press_x1 = t.x; press_y1 = t.y;
     }
     uint32_t since_end = conv_ended_ms ? now - conv_ended_ms : 0xFFFFFFFFu;
+    // v89: while a robot app runs, a hold stops it (and its speech); taps are ignored below.
+    if (screen_pressed && !press_consumed && RobotApps::running() && now - press_start_ms >= TalkTouchPolicy::holdThresholdMs(true)) {
+      press_consumed = true; touched = false;
+      Serial.println("Display long press: stop robot app");
+      RobotApps::stop(); gemini.stopConversation(); emotion.setEmotion("neutral");
+    }
     // v58: a hold only matters during a conversation (ends it); idle holds do nothing.
     if (screen_pressed && !press_consumed && conv_now &&
         now - press_start_ms >= TalkTouchPolicy::holdThresholdMs(conv_now)) {
@@ -758,6 +764,8 @@ void loop() {
         Serial.println("Display long press: ignored (idle, swipe up for menu)");
       } else if (idle && FocusApp::widgetVisible() && PomodoroPolicy::widgetTap(press_y0)) {
         FocusApp::stop(); emotion.forceRedraw(); Serial.println("Display tap: focus widget stop");
+      } else if (RobotApps::running()) {
+        Serial.println("Display tap: ignored (robot app running; hold to stop it)");
       } else {
         // Short tap = talk/interrupt.
         Serial.printf("Display tap x=%d y=%d\n", t.x, t.y);

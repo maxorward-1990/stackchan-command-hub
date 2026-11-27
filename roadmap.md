@@ -194,7 +194,8 @@
 - [x] v87 (byggd och testad i datorn): samtidiga steg, Ta en bild/Titta och berätta/Starta samtal/Spela ljud, villkor lyft/nedställd/välter/knack/batteri/laddare, huvudtrycksrättelse, SD som extra lagring, Foton i Command Hub, ny appsida
 - [ ] Flasha v87 och prova: samtidig dans+tal, foto + Foton, ljud, knack/lyft, flera huvudtryck — kräver ägaren
 - [x] v88 (byggd och testad i datorn): appfraser till Gemini (röstkommando startar appen direkt), Visa över ansiktet, Vänta på …, appen stänger sin Gemini-anslutning
-- [ ] Flasha v88 och prova: "ta en bild" utan "starta appen", hjärta/text över ansiktet, huvudtryck → vänta på välter — kräver ägaren
+- [x] v88 provad: vänta på välter fungerade; tryck under tal och vältning direkt efter talet rättat i v89
+- [ ] Flasha v89 och prova: "ta en bild" utan "starta appen", hjärta/text över ansiktet, huvudtryck → vänta på välter — kräver ägaren
 - [ ] Senare: villkor "högt ljud" (mikrofonnivå via väckningsordets ljud – försiktigt), bild med text ovanpå
 - Princip: mer beteende via prompter/färdigheter i Command Hub; firmware ändras bara för nya sorters förmågor
 - Princip: ingen skriptmotor (Lua/Berry) på roboten tills deklarativa appar inte räcker — internminnet behövs för TLS

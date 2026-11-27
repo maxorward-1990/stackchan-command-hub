@@ -845,7 +845,8 @@ bool GeminiLiveProbe::pollTouchInterrupt() {
   M5.update();
   bool down = M5.Touch.getCount() > 0;
   // v31: a text/USB turn waiting for its first reply ignores taps so tests are not hijacked.
-  if (down && !interrupt_touch_down_ && !text_turn_active_) requestInterrupt();
+  // v89: a running robot app owns the screen; a tap must not cut its speech (the owner touched it while tipping the robot).
+  if (down && !interrupt_touch_down_ && !text_turn_active_ && !RobotApps::running()) requestInterrupt();
   interrupt_touch_down_ = down;
   return discard_audio_;
 }
