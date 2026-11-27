@@ -235,5 +235,22 @@ export function abortableSleep(ms: number, signal: AbortSignal) {
   });
 }
 
+/** Speak/ask steps only queue text for Gemini; wait until the robot actually started and finished talking,
+ *  so a following step (e.g. "Avsluta samtal") cannot cut the answer. speaking() reads /api/sensors gemini.speaking. */
+export async function waitForSpeech(speaking: () => Promise<boolean | undefined>, signal: AbortSignal, opts: { startMs?: number; maxMs?: number; quietMs?: number; pollMs?: number; sleep?: typeof abortableSleep; now?: () => number } = {}) {
+  const { startMs = 20000, maxMs = 90000, quietMs = 1500, pollMs = 400, sleep = abortableSleep, now = Date.now } = opts;
+  const t0 = now();
+  let started = false, quietSince: number | null = null;
+  for (;;) {
+    const s = await speaking();
+    const t = now();
+    if (s) { started = true; quietSince = null; }
+    else if (started) { quietSince ??= t; if (t - quietSince >= quietMs) return; }
+    else if (t - t0 >= startMs) throw new Error(`roboten började inte prata inom ${Math.round(startMs / 1000)} s – är Gemini igång?`);
+    if (t - t0 >= maxMs) return;  // very long answer: let the app continue
+    await sleep(pollMs, signal);
+  }
+}
+
 /** The robot's serial API line limit (SerialCommandPolicy::maxLineBytes 6144) leaves ~5.6 kB for an image over USB. */
 export const USB_IMAGE_BASE64 = 5600;

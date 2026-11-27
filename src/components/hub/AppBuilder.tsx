@@ -57,7 +57,7 @@ function ActionFields({ a, set }: { a: Action; set: (a: Action) => void }) {
       <span>Sida</span><Input type="number" className="w-20" min={-90} max={90} value={a.pan} onChange={e => set({ ...a, pan: Math.max(-90, Math.min(90, Number(e.target.value) || 0)) })} />
       <span>Upp/ner</span><Input type="number" className="w-20" min={-30} max={30} value={a.tilt} onChange={e => set({ ...a, tilt: Math.max(-30, Math.min(30, Number(e.target.value) || 0)) })} /><span className="text-xs text-muted-foreground">grader</span></div>;
     case "text": case "speak": case "todo": return <div className="space-y-1"><Input maxLength={a.kind === "todo" ? 120 : 200} value={a.text} onChange={e => set({ ...a, text: e.target.value })} />
-      {a.kind === "speak" && <p className="text-xs text-muted-foreground">Gemini läser upp meningen (roboten har ingen egen talsyntes), så Gemini måste vara igång.</p>}</div>;
+      {a.kind === "speak" && <p className="text-xs text-muted-foreground">Gemini läser upp meningen (roboten har ingen egen talsyntes). Nästa steg väntar tills roboten pratat klart.</p>}</div>;
     case "ask": return <Textarea maxLength={400} rows={2} value={a.prompt} onChange={e => set({ ...a, prompt: e.target.value })} />;
     case "image": return <div className="flex flex-wrap items-center gap-3">
       {a.jpeg_base64 && <img alt={a.name || "Vald bild"} className="h-16 rounded border" src={`data:image/jpeg;base64,${a.jpeg_base64}`} />}

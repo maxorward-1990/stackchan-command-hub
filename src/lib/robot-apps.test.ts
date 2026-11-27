@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EXAMPLE_APP, UtteranceJoiner, appProblem, defaultAction, defaultTrigger, exportRobotApps, importRobotApps, mayStart,
-  readRobotApps, readSensorSnapshot, runActions, saysMatch, sensorEdge, timeMatch, type Action, type ActionKind, type TriggerKind,
+  readRobotApps, readSensorSnapshot, runActions, waitForSpeech, saysMatch, sensorEdge, timeMatch, type Action, type ActionKind, type TriggerKind,
 } from "./robot-apps";
 
 describe("robot app format", () => {
@@ -94,5 +94,24 @@ describe("runner", () => {
     c.abort();
     expect(await p).toEqual({ ok: false, done: 0, error: "Stoppad." });
     expect(ran).toEqual([]);
+  });
+});
+
+describe("speech wait", () => {
+  const run = async (seq: (boolean | undefined)[]) => {
+    let t = 0, i = 0;
+    const opts = { now: () => t, sleep: async (ms: number) => { t += ms; }, pollMs: 500, startMs: 3000, quietMs: 1000, maxMs: 20000 };
+    await waitForSpeech(async () => seq[Math.min(i++, seq.length - 1)], new AbortController().signal, opts);
+    return { t, polls: i };
+  };
+  it("waits for the robot to start and then stop talking (short gaps are not the end)", async () => {
+    const r = await run([false, false, true, true, false, true, true, false, false, false]);
+    expect(r.polls).toBe(10);  // the single quiet poll between chunks did not end the wait
+  });
+  it("fails clearly when Gemini never starts talking", async () => {
+    await expect(run([false])).rejects.toThrow(/började inte prata/);
+  });
+  it("never waits forever on a long answer", async () => {
+    expect((await run([true])).t).toBe(20000);
   });
 });

@@ -9,7 +9,7 @@ import { focusStartRequest } from "./focus-app";
 import { fitJpeg } from "./jpeg-fit";
 import {
   SENSOR_TRIGGERS, USB_IMAGE_BASE64, UtteranceJoiner, mayStart, readRobotApps, readSensorSnapshot, runActions, saysMatch, sensorEdge,
-  timeMatch, type Action, type RobotApp, type SensorSnapshot,
+  timeMatch, waitForSpeech, type Action, type RobotApp, type SensorSnapshot,
 } from "./robot-apps";
 
 export const ROBOT_APPS_KEY = "sc.robotApps.v1";
@@ -54,7 +54,12 @@ async function homeAction(action: "scene" | "on" | "off", target: string) {
   throw new Error("Lamporna svarade inte inom 15 s.");
 }
 
-export async function executeAction(a: Action): Promise<void> {
+const geminiSpeaking = async () => {
+  const g = ((await robot.sensors()) as { gemini?: { speaking?: unknown } }).gemini;
+  return typeof g?.speaking === "boolean" ? g.speaking : undefined;
+};
+
+export async function executeAction(a: Action, signal: AbortSignal = new AbortController().signal): Promise<void> {
   switch (a.kind) {
     case "led": await robot.led(a.mode, a.color); return;
     case "emotion": await robot.emotion(a.emotion); return;
@@ -68,8 +73,8 @@ export async function executeAction(a: Action): Promise<void> {
       return;
     }
     case "clear": await robot.clearScreen(); return;
-    case "speak": await robot.speak(a.text); return;
-    case "ask": await robot.say(a.prompt); return;
+    case "speak": await robot.speak(a.text); await waitForSpeech(geminiSpeaking, signal); return;
+    case "ask": await robot.say(a.prompt); await waitForSpeech(geminiSpeaking, signal); return;
     case "lights": await homeAction(a.action, a.target); return;
     case "todo": { const r = await robot.todos({ action: "add", text: a.text }); if (!r.ok) throw new Error(r.error || "Att-göra kunde inte sparas."); return; }
     case "timer": await robot.focusStart(focusStartRequest({ focus_min: a.minutes, break_min: 1, rounds: 1, mode: "widget" })); return;
@@ -85,7 +90,7 @@ export async function runApp(app: RobotApp, reason: string): Promise<boolean> {
   lastRun.set(app.id, Date.now());
   set({ running: { id: app.id, name: app.name } });
   log(`▶ ${app.name} (${reason})`);
-  const r = await runActions(app.actions, a => executeAction(a), controller.signal);
+  const r = await runActions(app.actions, (a, sig) => executeAction(a, sig), controller.signal);
   controller = null;
   set({ running: null });
   log(r.ok ? `✓ ${app.name} klar` : `✗ ${app.name}: ${r.error}`);
