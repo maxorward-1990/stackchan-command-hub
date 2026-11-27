@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { useLocal } from "@/lib/use-local";
 import { robot } from "@/lib/gemini-robot";
 import { FocusAppCard } from "./FocusAppCard";
+import { AppBuilder } from "./AppBuilder";
 import { robotAppRequest, type RobotAppStatus } from "@/lib/robot-app";
 import { DEFAULT_APP, clockText, deskAppSchema, fetchWeather, findPlaces, importApps, readApps, snapshotText, weatherLabel, weatherStale, type DeskApp, type Place, type Weather } from "@/lib/desk-app";
 
@@ -45,8 +46,9 @@ export function AppsPage() {
     const a = document.createElement("a"); a.href = url; a.download = "stackchan-appar.json"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return <div className="space-y-7">
+    <AppBuilder />
     <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-5">
-      <div><p className="font-medium">Dina robotappar</p><p className="mt-1 text-sm text-muted-foreground">Lokalt bibliotek · v61 kvar som stabil återställning</p></div>
+      <div><p className="font-medium">Klocka & Väder och Fokustimer</p><p className="mt-1 text-sm text-muted-foreground">Inbyggda appar i robotens firmware · inställningar sparas här och på roboten</p></div>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="icon" title="Exportera appar" aria-label="Exportera appar" disabled={!apps.length} onClick={exportApps}><Download /></Button>
         <Button variant="outline" size="icon" title="Importera appar" aria-label="Importera appar" disabled={busy !== null} onClick={() => file.current?.click()}><Upload /></Button>

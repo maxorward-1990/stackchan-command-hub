@@ -3,6 +3,6 @@ import { AppsPage } from "@/components/hub/AppsPage";
 import { hubHead } from "@/lib/hub-head";
 
 export const Route = createFileRoute("/apps")({
-  head: () => hubHead("Appar", "Skapa egna klock- och väderappar för StackChan med lokalt bibliotek och skärmförhandsvisning."),
+  head: () => hubHead("Appar", "Bygg egna StackChan-appar (om … så …) med sensorer, röst, klockslag, LED, gester, skärm och lampor, samt klock- och väderappar."),
   component: AppsPage,
 });

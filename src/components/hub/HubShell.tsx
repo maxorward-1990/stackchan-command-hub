@@ -7,6 +7,7 @@ import { Diagnostics } from "./Diagnostics";
 import { normalizePath } from "@/lib/route-path";
 import { IS_PREVIEW, readStored, writeStored } from "@/lib/app-storage";
 import { setGeminiRobotLogger } from "@/lib/gemini-robot";
+import { startAppEngine } from "@/lib/robot-app-engine";
 
 // Links carry the trailing slash (router trailingSlash: "always"); compare via normalizePath.
 type HubPath = "/" | "/personality/" | "/camera/" | "/lights/" | "/tasks/" | "/activities/" | "/apps/" | "/settings/" | "/diagnostics/" | "/firmware/" | "/build/";
@@ -24,6 +25,7 @@ export function HubShell({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   useEffect(() => { setDark(readStored("sc.theme") !== "light"); setThemeLoaded(true); }, []);
+  useEffect(() => { startAppEngine(); }, []);  // armed robot apps run on every page
   useEffect(() => { if (!themeLoaded) return; document.documentElement.classList.toggle("dark", dark); writeStored("sc.theme", dark ? "dark" : "light"); }, [dark, themeLoaded]);
   useEffect(() => {
     setGeminiRobotLogger((message) => setLog((lines) => [`${new Date().toLocaleTimeString("sv-SE")} ${message}`, ...lines].slice(0, 40)));

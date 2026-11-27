@@ -197,6 +197,8 @@ export const robot = {
   interrupt: () => call("/api/voice/interrupt", {}),
   showText: (text: string) => call("/api/display", { type: "text", text }),
   clearScreen: () => call("/api/display", { image: "clear" }),
+  /** Bounded JPEG (≤64 KiB decoded; over USB the whole request line must fit 6144 bytes). */
+  showImage: (jpeg_base64: string) => call<{ ok: boolean }>("/api/display", { jpeg_base64 }),
   gesture: (gesture: string) => call("/api/servo/gesture", { gesture }),
   emotion: (emotion: string) => call("/api/emotion", { emotion }),
   /** pan −90…90°, tilt −30…30° → firmware units (x ±1280, y 0…900). */
